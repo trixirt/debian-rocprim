@@ -1,0 +1,18 @@
+Source: rocprim
+Section: devel
+Homepage: https://github.com/rocmsoftwareplatform/rocprim
+Priority: optional
+Standards-Version: 4.6.0
+Vcs-Git: https://salsa.debian.org/rocm-team/rocprim.git
+Vcs-Browser: https://salsa.debian.org/rocm-team/rocprim
+Maintainer: ROCm Team <team+rocm-team@tracker.debian.org>
+Uploaders: Maxime Chambonnet <maxzor@maxzor.eu>,
+Build-Depends: debhelper-compat (= 13),
+               cmake,
+
+Package: librocprim2-dev
+Section: libdevel
+Architecture: any
+Depends: ${misc:Depends}
+Description: TODO
+

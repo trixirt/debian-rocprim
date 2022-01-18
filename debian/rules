@@ -1,0 +1,43 @@
+#!/usr/bin/make -f
+export DEB_HIP_ARCHITECTURES='gfx906:xnack-'
+export CC=clang
+export CXX=clang++
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=-all
+export VERBOSE=1
+
+export HIP_PLATFORM=amd
+export HIP_RUNTIME=rocclr
+export HIP_COMPILER=clang
+export HIP_CLANG_PATH=/usr/bin
+export DEVICE_LIB_PATH=/usr/amdgcn/bitcode
+export HIP_DEVICE_LIB_PATH=/usr/amdgcn/bitcode
+export HSA_PATH=/usr/hsa
+export LLVM_PATH=/usr
+export HIP_PATH=/usr/hip
+export ROCM_PATH=/usr/hip
+export HCC_AMDGPU_TARGET='gfx906:xnack-'
+export HIPCC_COMPILE_FLAGS_APPEND='-O3'
+export HIPCC_LINK_FLAGS_APPEND='-O3'
+export HIP_CLANG_HCC_COMPAT_MODE=1
+
+
+%:
+	dh $@ -Scmake
+
+override_dh_auto_configure:
+	dh_auto_configure -- \
+		-DCMAKE_CXX_COMPILER=/usr/bin/hipcc \
+		-DCMAKE_INSTALL_PREFIX=/usr \
+		-DAMDGPU_TARGETS='gfx906:xnack-' \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DENABLE_INLINE_ASM=1
+#-DBUILD_TEST=ON \
+
+# Exclude HSA and other code objects for now.
+override_dh_strip:
+	dh_strip --exclude=.hsaco --exclude=.co
+
+#/!\ TODO un-override this! There are google tests in there, not sure if dfsg needed.
+override_dh_auto_test:
+	echo "No test, overridden for now"

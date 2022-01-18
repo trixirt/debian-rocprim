@@ -1,0 +1,6 @@
+rocprim (4.5.2-1~exp1) UNRELEASED; urgency=medium
+  [ Maxime Chambonnet ]
+  * Initial packaging
+  * New upstream version 4.5.2
+
+ -- maxzor <maxzor@maxzor.eu>  Tue, 04 Jan 2022 10:07:38 +0100
