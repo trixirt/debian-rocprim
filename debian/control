@@ -5,7 +5,7 @@ Priority: optional
 Standards-Version: 4.6.0
 Vcs-Git: https://salsa.debian.org/rocm-team/rocprim.git
 Vcs-Browser: https://salsa.debian.org/rocm-team/rocprim
-Maintainer: ROCm Team <team+rocm-team@tracker.debian.org>
+Maintainer: ROCm Team <debian-ai@lists.debian.org>
 Uploaders: Maxime Chambonnet <maxzor@maxzor.eu>,
 Build-Depends: debhelper-compat (= 13),
                cmake,
