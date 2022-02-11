@@ -72,7 +72,7 @@ public:
     using storage_type = detail::raw_storage<storage_type_>;
 
     template<class Counter>
-    ROCPRIM_DEVICE inline
+    ROCPRIM_DEVICE ROCPRIM_FORCE_INLINE
     void composite(T (&input)[ItemsPerThread],
                    Counter hist[Bins])
     {
@@ -81,7 +81,7 @@ public:
     }
 
     template<class Counter>
-    ROCPRIM_DEVICE inline
+    ROCPRIM_DEVICE ROCPRIM_INLINE
     void composite(T (&input)[ItemsPerThread],
                    Counter hist[Bins],
                    storage_type& storage)
@@ -113,9 +113,12 @@ public:
         ::rocprim::syncthreads();
 
         discontinuity().flag_heads(head_flags, input, flags_op, storage_.flag);
+        ::rocprim::syncthreads();
 
-        // ::rocprim::syncthreads() isn't required here as input is sorted by this point
-        // and it's impossible that flags_op will be called where b = input[0] and a != b
+        // The start of the first bin is not overwritten since the input is sorted
+        // and the starts are based on the second item.
+        // The very first item is never used as `b` in the operator
+        // This means that this should not need synchromization, but in practice it does.
         if(flat_tid == 0)
         {
             storage_.start[static_cast<unsigned int>(input[0])] = 0;
@@ -139,16 +142,16 @@ private:
     {
         storage_type &storage;
 
-        ROCPRIM_DEVICE inline
+        ROCPRIM_DEVICE ROCPRIM_INLINE
         discontinuity_op(storage_type &storage) : storage(storage)
         {
         }
 
-        ROCPRIM_DEVICE inline
+        ROCPRIM_DEVICE ROCPRIM_INLINE
         bool operator()(const T& a, const T& b, unsigned int b_index) const
         {
             storage_type_& storage_ = storage.get();
-            if(a != b)
+            if(static_cast<unsigned int>(a) != static_cast<unsigned int>(b))
             {
                 storage_.start[static_cast<unsigned int>(b)] = b_index;
                 storage_.end[static_cast<unsigned int>(a)] = b_index;

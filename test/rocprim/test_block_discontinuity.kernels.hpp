@@ -186,7 +186,6 @@ auto test_block_discontinuity()
 {
     using type = Type;
     // std::vector<bool> is a special case that will cause an error in hipMemcpy
-    // http://en.cppreference.com/w/cpp/container/vector_bool
     using stored_flag_type = typename std::conditional<
                                std::is_same<bool, FlagType>::value,
                                int,
@@ -261,7 +260,7 @@ auto test_block_discontinuity()
             dim3(grid_size), dim3(block_size), 0, 0,
             device_input, device_heads
         );
-        HIP_CHECK(hipPeekAtLastError());
+        HIP_CHECK(hipGetLastError());
         HIP_CHECK(hipDeviceSynchronize());
 
         // Reading results
@@ -298,7 +297,6 @@ auto test_block_discontinuity()
 {
     using type = Type;
     // std::vector<bool> is a special case that will cause an error in hipMemcpy
-    // http://en.cppreference.com/w/cpp/container/vector_bool
     using stored_flag_type = typename std::conditional<
                                std::is_same<bool, FlagType>::value,
                                int,
@@ -373,7 +371,7 @@ auto test_block_discontinuity()
             dim3(grid_size), dim3(block_size), 0, 0,
             device_input, device_tails
         );
-        HIP_CHECK(hipPeekAtLastError());
+        HIP_CHECK(hipGetLastError());
         HIP_CHECK(hipDeviceSynchronize());
 
         // Reading results
@@ -410,7 +408,6 @@ auto test_block_discontinuity()
 {
     using type = Type;
     // std::vector<bool> is a special case that will cause an error in hipMemcpy
-    // http://en.cppreference.com/w/cpp/container/vector_bool
     using stored_flag_type = typename std::conditional<
                                std::is_same<bool, FlagType>::value,
                                int,
@@ -499,7 +496,7 @@ auto test_block_discontinuity()
             dim3(grid_size), dim3(block_size), 0, 0,
             device_input, device_heads, device_tails
         );
-        HIP_CHECK(hipPeekAtLastError());
+        HIP_CHECK(hipGetLastError());
         HIP_CHECK(hipDeviceSynchronize());
 
         // Reading results

@@ -131,7 +131,7 @@ void sort_and_scatter_kernel(KeysInputIterator keys_input,
 
 #define ROCPRIM_DETAIL_HIP_SYNC_AND_RETURN_ON_ERROR(name, size, start) \
     { \
-        auto _error = hipPeekAtLastError(); \
+        auto _error = hipGetLastError(); \
         if(_error != hipSuccess) return _error; \
         if(debug_synchronous) \
         { \
@@ -503,7 +503,7 @@ hipError_t radix_sort_iterations_impl(void * temporary_storage,
     const unsigned int iterations = ::rocprim::detail::ceiling_div(bits, config::long_radix_bits);
     const unsigned int radix_bits_diff = config::long_radix_bits - config::short_radix_bits;
     const unsigned int short_iterations = radix_bits_diff != 0
-        ? ::rocprim::min(iterations, (config::long_radix_bits * iterations - bits) / radix_bits_diff)
+        ? ::rocprim::min(iterations, (config::long_radix_bits * iterations - bits) / std::max(1u, radix_bits_diff))
         : 0;
     const unsigned int long_iterations = iterations - short_iterations;
 
@@ -754,9 +754,10 @@ hipError_t radix_sort_impl(void * temporary_storage,
 /// \param [in] size - number of element in the input range.
 /// \param [in] begin_bit - [optional] index of the first (least significant) bit used in
 /// key comparison. Must be in range <tt>[0; 8 * sizeof(Key))</tt>. Default value: \p 0.
+/// Non-default value not supported for floating-point key-types.
 /// \param [in] end_bit - [optional] past-the-end index (most significant) bit used in
 /// key comparison. Must be in range <tt>(begin_bit; 8 * sizeof(Key)]</tt>. Default
-/// value: \p <tt>8 * sizeof(Key)</tt>.
+/// value: \p <tt>8 * sizeof(Key)</tt>. Non-default value not supported for floating-point key-types.
 /// \param [in] stream - [optional] HIP stream object. Default is \p 0 (default stream).
 /// \param [in] debug_synchronous - [optional] If true, synchronization after every kernel
 /// launch is forced in order to check for errors. Default value is \p false.
@@ -857,9 +858,10 @@ hipError_t radix_sort_keys(void * temporary_storage,
 /// \param [in] size - number of element in the input range.
 /// \param [in] begin_bit - [optional] index of the first (least significant) bit used in
 /// key comparison. Must be in range <tt>[0; 8 * sizeof(Key))</tt>. Default value: \p 0.
+/// Non-default value not supported for floating-point key-types.
 /// \param [in] end_bit - [optional] past-the-end index (most significant) bit used in
 /// key comparison. Must be in range <tt>(begin_bit; 8 * sizeof(Key)]</tt>. Default
-/// value: \p <tt>8 * sizeof(Key)</tt>.
+/// value: \p <tt>8 * sizeof(Key)</tt>. Non-default value not supported for floating-point key-types.
 /// \param [in] stream - [optional] HIP stream object. Default is \p 0 (default stream).
 /// \param [in] debug_synchronous - [optional] If true, synchronization after every kernel
 /// launch is forced in order to check for errors. Default value is \p false.
@@ -967,9 +969,10 @@ hipError_t radix_sort_keys_desc(void * temporary_storage,
 /// \param [in] size - number of element in the input range.
 /// \param [in] begin_bit - [optional] index of the first (least significant) bit used in
 /// key comparison. Must be in range <tt>[0; 8 * sizeof(Key))</tt>. Default value: \p 0.
+/// Non-default value not supported for floating-point key-types.
 /// \param [in] end_bit - [optional] past-the-end index (most significant) bit used in
 /// key comparison. Must be in range <tt>(begin_bit; 8 * sizeof(Key)]</tt>. Default
-/// value: \p <tt>8 * sizeof(Key)</tt>.
+/// value: \p <tt>8 * sizeof(Key)</tt>. Non-default value not supported for floating-point key-types.
 /// \param [in] stream - [optional] HIP stream object. Default is \p 0 (default stream).
 /// \param [in] debug_synchronous - [optional] If true, synchronization after every kernel
 /// launch is forced in order to check for errors. Default value is \p false.
@@ -1089,9 +1092,10 @@ hipError_t radix_sort_pairs(void * temporary_storage,
 /// \param [in] size - number of element in the input range.
 /// \param [in] begin_bit - [optional] index of the first (least significant) bit used in
 /// key comparison. Must be in range <tt>[0; 8 * sizeof(Key))</tt>. Default value: \p 0.
+/// Non-default value not supported for floating-point key-types.
 /// \param [in] end_bit - [optional] past-the-end index (most significant) bit used in
 /// key comparison. Must be in range <tt>(begin_bit; 8 * sizeof(Key)]</tt>. Default
-/// value: \p <tt>8 * sizeof(Key)</tt>.
+/// value: \p <tt>8 * sizeof(Key)</tt>. Non-default value not supported for floating-point key-types.
 /// \param [in] stream - [optional] HIP stream object. Default is \p 0 (default stream).
 /// \param [in] debug_synchronous - [optional] If true, synchronization after every kernel
 /// launch is forced in order to check for errors. Default value is \p false.
@@ -1202,9 +1206,10 @@ hipError_t radix_sort_pairs_desc(void * temporary_storage,
 /// \param [in] size - number of element in the input range.
 /// \param [in] begin_bit - [optional] index of the first (least significant) bit used in
 /// key comparison. Must be in range <tt>[0; 8 * sizeof(Key))</tt>. Default value: \p 0.
+/// Non-default value not supported for floating-point key-types.
 /// \param [in] end_bit - [optional] past-the-end index (most significant) bit used in
 /// key comparison. Must be in range <tt>(begin_bit; 8 * sizeof(Key)]</tt>. Default
-/// value: \p <tt>8 * sizeof(Key)</tt>.
+/// value: \p <tt>8 * sizeof(Key)</tt>. Non-default value not supported for floating-point key-types.
 /// \param [in] stream - [optional] HIP stream object. Default is \p 0 (default stream).
 /// \param [in] debug_synchronous - [optional] If true, synchronization after every kernel
 /// launch is forced in order to check for errors. Default value is \p false.
@@ -1311,9 +1316,10 @@ hipError_t radix_sort_keys(void * temporary_storage,
 /// \param [in] size - number of element in the input range.
 /// \param [in] begin_bit - [optional] index of the first (least significant) bit used in
 /// key comparison. Must be in range <tt>[0; 8 * sizeof(Key))</tt>. Default value: \p 0.
+/// Non-default value not supported for floating-point key-types.
 /// \param [in] end_bit - [optional] past-the-end index (most significant) bit used in
 /// key comparison. Must be in range <tt>(begin_bit; 8 * sizeof(Key)]</tt>. Default
-/// value: \p <tt>8 * sizeof(Key)</tt>.
+/// value: \p <tt>8 * sizeof(Key)</tt>. Non-default value not supported for floating-point key-types.
 /// \param [in] stream - [optional] HIP stream object. Default is \p 0 (default stream).
 /// \param [in] debug_synchronous - [optional] If true, synchronization after every kernel
 /// launch is forced in order to check for errors. Default value is \p false.
@@ -1423,9 +1429,10 @@ hipError_t radix_sort_keys_desc(void * temporary_storage,
 /// \param [in] size - number of element in the input range.
 /// \param [in] begin_bit - [optional] index of the first (least significant) bit used in
 /// key comparison. Must be in range <tt>[0; 8 * sizeof(Key))</tt>. Default value: \p 0.
+/// Non-default value not supported for floating-point key-types.
 /// \param [in] end_bit - [optional] past-the-end index (most significant) bit used in
 /// key comparison. Must be in range <tt>(begin_bit; 8 * sizeof(Key)]</tt>. Default
-/// value: \p <tt>8 * sizeof(Key)</tt>.
+/// value: \p <tt>8 * sizeof(Key)</tt>. Non-default value not supported for floating-point key-types.
 /// \param [in] stream - [optional] HIP stream object. Default is \p 0 (default stream).
 /// \param [in] debug_synchronous - [optional] If true, synchronization after every kernel
 /// launch is forced in order to check for errors. Default value is \p false.
@@ -1547,9 +1554,10 @@ hipError_t radix_sort_pairs(void * temporary_storage,
 /// \param [in] size - number of element in the input range.
 /// \param [in] begin_bit - [optional] index of the first (least significant) bit used in
 /// key comparison. Must be in range <tt>[0; 8 * sizeof(Key))</tt>. Default value: \p 0.
+/// Non-default value not supported for floating-point key-types.
 /// \param [in] end_bit - [optional] past-the-end index (most significant) bit used in
 /// key comparison. Must be in range <tt>(begin_bit; 8 * sizeof(Key)]</tt>. Default
-/// value: \p <tt>8 * sizeof(Key)</tt>.
+/// value: \p <tt>8 * sizeof(Key)</tt>. Non-default value not supported for floating-point key-types.
 /// \param [in] stream - [optional] HIP stream object. Default is \p 0 (default stream).
 /// \param [in] debug_synchronous - [optional] If true, synchronization after every kernel
 /// launch is forced in order to check for errors. Default value is \p false.

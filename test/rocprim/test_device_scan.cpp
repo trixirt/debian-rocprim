@@ -30,6 +30,10 @@
 // required test headers
 #include "test_utils_types.hpp"
 
+#include <functional>
+#include <iterator>
+#include <numeric>
+
 // Params for tests
 template<
     class InputType,
@@ -37,7 +41,8 @@ template<
     class ScanOp = ::rocprim::plus<OutputType>,
     // Tests output iterator with void value_type (OutputIterator concept)
     // scan-by-key primitives don't support output iterator with void value_type
-    bool UseIdentityIteratorIfSupported = false
+    bool UseIdentityIteratorIfSupported = false,
+    size_t SizeLimit = ROCPRIM_GRID_SIZE_LIMIT
 >
 struct DeviceScanParams
 {
@@ -45,6 +50,7 @@ struct DeviceScanParams
     using output_type = OutputType;
     using scan_op_type = ScanOp;
     static constexpr bool use_identity_iterator = UseIdentityIteratorIfSupported;
+    static constexpr size_t size_limit = SizeLimit;
 };
 
 // ---------------------------------------------------------
@@ -60,6 +66,7 @@ public:
     using scan_op_type = typename Params::scan_op_type;
     const bool debug_synchronous = false;
     static constexpr bool use_identity_iterator = Params::use_identity_iterator;
+    static constexpr size_t size_limit = Params::size_limit;
 };
 
 typedef ::testing::Types<
@@ -68,7 +75,11 @@ typedef ::testing::Types<
     DeviceScanParams<unsigned short>,
     DeviceScanParams<short, int>,
     DeviceScanParams<int>,
+    DeviceScanParams<int, int, rocprim::plus<int>, false, 512 >,
     DeviceScanParams<float, float, rocprim::maximum<float> >,
+    DeviceScanParams<float, float, rocprim::plus<float>, false, 1024 >,
+    DeviceScanParams<int, int, rocprim::plus<int>, false, 524288 >,
+    DeviceScanParams<int, int, rocprim::plus<int>, false, 1048576 >,
     DeviceScanParams<int8_t, int8_t, rocprim::maximum<int8_t>>,
     DeviceScanParams<uint8_t, uint8_t, rocprim::maximum<uint8_t>>,
 #ifndef __HIP__
@@ -78,7 +89,8 @@ typedef ::testing::Types<
     DeviceScanParams<rocprim::half, float>,
 #endif
     DeviceScanParams<rocprim::bfloat16, rocprim::bfloat16, test_utils::bfloat16_maximum>,
-    DeviceScanParams<rocprim::bfloat16, float>,
+    //TODO: Disable bfloat16 test until the follwing PR merge: https://github.com/ROCm-Developer-Tools/HIP/pull/2303
+    //DeviceScanParams<rocprim::bfloat16, float>,
     // Large
     DeviceScanParams<int, double, rocprim::plus<int> >,
     DeviceScanParams<int, double, rocprim::plus<double> >,
@@ -90,10 +102,10 @@ typedef ::testing::Types<
     DeviceScanParams<float, double, rocprim::minimum<double> >,
     DeviceScanParams<test_utils::custom_test_type<int> >,
     // TODO: Enable again, when it has been fixed.
-    /*DeviceScanParams<
+    DeviceScanParams<
         test_utils::custom_test_type<double>, test_utils::custom_test_type<double>,
         rocprim::plus<test_utils::custom_test_type<double> >, true
-    >,*/
+    >,
     DeviceScanParams<test_utils::custom_test_type<int> >,
     DeviceScanParams<test_utils::custom_test_array_type<long long, 5> >,
     DeviceScanParams<test_utils::custom_test_array_type<int, 10> >
@@ -105,13 +117,33 @@ std::vector<size_t> get_sizes(int seed_value)
         0, 1, 10, 53, 211,
         1024, 2048, 5096,
         34567, (1 << 18),
-        (1 << 20) - 12345
+        (1 << 20) - 12345,
+        (1 << 20) + 1
     };
     const std::vector<size_t> random_sizes = test_utils::get_random_data<size_t>(3, 1, 100000, seed_value);
     sizes.insert(sizes.end(), random_sizes.begin(), random_sizes.end());
     std::sort(sizes.begin(), sizes.end());
     return sizes;
 }
+
+template <unsigned int SizeLimit>
+struct size_limit_config {
+    using type = rocprim::scan_config<256,
+                                      16,
+                                      ROCPRIM_DETAIL_USE_LOOKBACK_SCAN,
+                                      rocprim::block_load_method::block_load_transpose,
+                                      rocprim::block_store_method::block_store_transpose,
+                                      rocprim::block_scan_algorithm::using_warp_scan,
+                                      SizeLimit>;
+};
+
+template <>
+struct size_limit_config<ROCPRIM_GRID_SIZE_LIMIT> {
+    using type = rocprim::default_config;
+};
+
+template <unsigned int SizeLimit>
+using size_limit_config_t = typename size_limit_config<SizeLimit>::type;
 
 TYPED_TEST_SUITE(RocprimDeviceScanTests, RocprimDeviceScanTestsParams);
 
@@ -163,7 +195,7 @@ TYPED_TEST(RocprimDeviceScanTests, InclusiveScanEmptyInput)
             0, scan_op_type(), stream, debug_synchronous
         )
     );
-    HIP_CHECK(hipPeekAtLastError());
+    HIP_CHECK(hipGetLastError());
     HIP_CHECK(hipDeviceSynchronize());
 
     ASSERT_FALSE(out_of_bounds.get());
@@ -179,6 +211,7 @@ TYPED_TEST(RocprimDeviceScanTests, InclusiveScan)
     using scan_op_type = typename TestFixture::scan_op_type;
     const bool debug_synchronous = TestFixture::debug_synchronous;
     static constexpr bool use_identity_iterator = TestFixture::use_identity_iterator;
+    using Config = size_limit_config_t<TestFixture::size_limit>;
 
     int device_id = test_common_utils::obtain_device_from_ctest();
     SCOPED_TRACE(testing::Message() << "with device_id= " << device_id);
@@ -233,7 +266,7 @@ TYPED_TEST(RocprimDeviceScanTests, InclusiveScan)
             void * d_temp_storage = nullptr;
             // Get size of d_temp_storage
             HIP_CHECK(
-                rocprim::inclusive_scan(
+                rocprim::inclusive_scan<Config>(
                     d_temp_storage, temp_storage_size_bytes,
                     d_input,
                     test_utils::wrap_in_identity_iterator<use_identity_iterator>(d_output),
@@ -250,14 +283,14 @@ TYPED_TEST(RocprimDeviceScanTests, InclusiveScan)
 
             // Run
             HIP_CHECK(
-                rocprim::inclusive_scan(
+                rocprim::inclusive_scan<Config>(
                     d_temp_storage, temp_storage_size_bytes,
                     d_input,
                     test_utils::wrap_in_identity_iterator<use_identity_iterator>(d_output),
                     input.size(), scan_op, stream, debug_synchronous
                 )
             );
-            HIP_CHECK(hipPeekAtLastError());
+            HIP_CHECK(hipGetLastError());
             HIP_CHECK(hipDeviceSynchronize());
 
             // Copy output to host
@@ -288,6 +321,7 @@ TYPED_TEST(RocprimDeviceScanTests, ExclusiveScan)
     using scan_op_type = typename TestFixture::scan_op_type;
     const bool debug_synchronous = TestFixture::debug_synchronous;
     static constexpr bool use_identity_iterator = TestFixture::use_identity_iterator;
+    using Config = size_limit_config_t<TestFixture::size_limit>;
 
     int device_id = test_common_utils::obtain_device_from_ctest();
     SCOPED_TRACE(testing::Message() << "with device_id= " << device_id);
@@ -344,11 +378,12 @@ TYPED_TEST(RocprimDeviceScanTests, ExclusiveScan)
             void * d_temp_storage = nullptr;
             // Get size of d_temp_storage
             HIP_CHECK(
-                rocprim::exclusive_scan(
+                rocprim::exclusive_scan<Config>(
                     d_temp_storage, temp_storage_size_bytes,
                     d_input,
                     test_utils::wrap_in_identity_iterator<use_identity_iterator>(d_output),
-                    initial_value, input.size(), scan_op, stream, debug_synchronous
+                    initial_value, input.size(), scan_op,
+                    stream, debug_synchronous
                 )
             );
 
@@ -361,14 +396,15 @@ TYPED_TEST(RocprimDeviceScanTests, ExclusiveScan)
 
             // Run
             HIP_CHECK(
-                rocprim::exclusive_scan(
+                rocprim::exclusive_scan<Config>(
                     d_temp_storage, temp_storage_size_bytes,
                     d_input,
                     test_utils::wrap_in_identity_iterator<use_identity_iterator>(d_output),
-                    initial_value, input.size(), scan_op, stream, debug_synchronous
+                    initial_value, input.size(), scan_op,
+                    stream, debug_synchronous
                 )
             );
-            HIP_CHECK(hipPeekAtLastError());
+            HIP_CHECK(hipGetLastError());
             HIP_CHECK(hipDeviceSynchronize());
 
             // Copy output to host
@@ -400,6 +436,7 @@ TYPED_TEST(RocprimDeviceScanTests, InclusiveScanByKey)
     using U = typename TestFixture::output_type;
     using scan_op_type = typename TestFixture::scan_op_type;
     const bool debug_synchronous = TestFixture::debug_synchronous;
+    using Config = size_limit_config_t<TestFixture::size_limit>;
 
     int device_id = test_common_utils::obtain_device_from_ctest();
     SCOPED_TRACE(testing::Message() << "with device_id= " << device_id);
@@ -467,29 +504,10 @@ TYPED_TEST(RocprimDeviceScanTests, InclusiveScanByKey)
 
             // Calculate expected results on host
             std::vector<U> expected(input.size());
-            test_utils::host_inclusive_scan(
-                rocprim::make_zip_iterator(
-                    rocprim::make_tuple(input.begin(), keys.begin())
-                ),
-                rocprim::make_zip_iterator(
-                    rocprim::make_tuple(input.end(), keys.end())
-                ),
-                rocprim::make_zip_iterator(
-                    rocprim::make_tuple(expected.begin(), rocprim::make_discard_iterator())
-                ),
-                [scan_op, keys_compare_op](const rocprim::tuple<U, K>& t1,
-                                        const rocprim::tuple<U, K>& t2)
-                    -> rocprim::tuple<U, K>
-                {
-                    if(keys_compare_op(rocprim::get<1>(t1), rocprim::get<1>(t2)))
-                    {
-                        return rocprim::make_tuple(
-                            scan_op(rocprim::get<0>(t1), rocprim::get<0>(t2)),
-                            rocprim::get<1>(t2)
-                        );
-                    }
-                    return t2;
-                }
+            test_utils::host_inclusive_scan_by_key(
+                input.begin(), input.end(), keys.begin(),
+                expected.begin(),
+                scan_op, keys_compare_op
             );
 
             // temp storage
@@ -497,7 +515,7 @@ TYPED_TEST(RocprimDeviceScanTests, InclusiveScanByKey)
             void * d_temp_storage = nullptr;
             // Get size of d_temp_storage
             HIP_CHECK(
-                rocprim::inclusive_scan_by_key(
+                rocprim::inclusive_scan_by_key<Config>(
                     d_temp_storage, temp_storage_size_bytes,
                     d_keys, d_input, d_output, input.size(),
                     scan_op, keys_compare_op, stream, debug_synchronous
@@ -513,13 +531,13 @@ TYPED_TEST(RocprimDeviceScanTests, InclusiveScanByKey)
 
             // Run
             HIP_CHECK(
-                rocprim::inclusive_scan_by_key(
+                rocprim::inclusive_scan_by_key<Config>(
                     d_temp_storage, temp_storage_size_bytes,
                     d_keys, d_input, d_output, input.size(),
                     scan_op, keys_compare_op, stream, debug_synchronous
                 )
             );
-            HIP_CHECK(hipPeekAtLastError());
+            HIP_CHECK(hipGetLastError());
             HIP_CHECK(hipDeviceSynchronize());
 
             // Copy output to host
@@ -552,6 +570,7 @@ TYPED_TEST(RocprimDeviceScanTests, ExclusiveScanByKey)
     using U = typename TestFixture::output_type;
     using scan_op_type = typename TestFixture::scan_op_type;
     const bool debug_synchronous = TestFixture::debug_synchronous;
+    using Config = size_limit_config_t<TestFixture::size_limit>;
 
     int device_id = test_common_utils::obtain_device_from_ctest();
     SCOPED_TRACE(testing::Message() << "with device_id= " << device_id);
@@ -631,7 +650,7 @@ TYPED_TEST(RocprimDeviceScanTests, ExclusiveScanByKey)
             void * d_temp_storage = nullptr;
             // Get size of d_temp_storage
             HIP_CHECK(
-                rocprim::exclusive_scan_by_key(
+                rocprim::exclusive_scan_by_key<Config>(
                     d_temp_storage, temp_storage_size_bytes,
                     d_keys, d_input, d_output, initial_value, input.size(),
                     scan_op, keys_compare_op, stream, debug_synchronous
@@ -647,13 +666,13 @@ TYPED_TEST(RocprimDeviceScanTests, ExclusiveScanByKey)
 
             // Run
             HIP_CHECK(
-                rocprim::exclusive_scan_by_key(
+                rocprim::exclusive_scan_by_key<Config>(
                     d_temp_storage, temp_storage_size_bytes,
                     d_keys, d_input, d_output, initial_value, input.size(),
                     scan_op, keys_compare_op, stream, debug_synchronous
                 )
             );
-            HIP_CHECK(hipPeekAtLastError());
+            HIP_CHECK(hipGetLastError());
             HIP_CHECK(hipDeviceSynchronize());
 
             // Copy output to host
@@ -675,5 +694,271 @@ TYPED_TEST(RocprimDeviceScanTests, ExclusiveScanByKey)
             hipFree(d_temp_storage);
         }
     }
+}
 
+template <typename T>
+class single_index_iterator {
+private:
+    class conditional_discard_value {
+    public:
+        __host__ __device__ explicit conditional_discard_value(T* const value, bool keep)
+            : value_{value}
+            , keep_{keep}
+        {
+        }
+
+        __host__ __device__ conditional_discard_value& operator=(T value) {
+            if(keep_) {
+                *value_ = value;
+            }
+            return *this;
+        }
+    private:
+        T* const   value_;
+        const bool keep_;
+    };
+
+    T*     value_;
+    size_t expected_index_;
+    size_t index_;
+
+public:
+    using value_type        = conditional_discard_value;
+    using reference         = conditional_discard_value;
+    using pointer           = conditional_discard_value*;
+    using iterator_category = std::random_access_iterator_tag;
+    using difference_type   = std::ptrdiff_t;
+
+    __host__ __device__ single_index_iterator(T* value, size_t expected_index, size_t index = 0)
+        : value_{value}
+        , expected_index_{expected_index}
+        , index_{index}
+    {
+    }
+
+    __host__ __device__ single_index_iterator(const single_index_iterator&) = default;
+    __host__ __device__ single_index_iterator& operator=(const single_index_iterator&) = default;
+
+    // clang-format off
+    __host__ __device__ bool operator==(const single_index_iterator& rhs) { return index_ == rhs.index_; }
+    __host__ __device__ bool operator!=(const single_index_iterator& rhs) { return !(this == rhs);       }
+
+    __host__ __device__ reference operator*() { return value_type{value_, index_ == expected_index_}; }
+
+    __host__ __device__ reference operator[](const difference_type distance) { return *(*this + distance); }
+
+    __host__ __device__ single_index_iterator& operator+=(const difference_type rhs) { index_ += rhs; return *this; }
+    __host__ __device__ single_index_iterator& operator-=(const difference_type rhs) { index_ -= rhs; return *this; }
+
+    __host__ __device__ difference_type operator-(const single_index_iterator& rhs) const { return index_ - rhs.index_; }
+
+    __host__ __device__ single_index_iterator operator+(const difference_type rhs) const { return single_index_iterator(*this) += rhs; }
+    __host__ __device__ single_index_iterator operator-(const difference_type rhs) const { return single_index_iterator(*this) -= rhs; }
+
+    __host__ __device__ single_index_iterator& operator++() { ++index_; return *this; }
+    __host__ __device__ single_index_iterator& operator--() { --index_; return *this; }
+
+    __host__ __device__ single_index_iterator operator++(int) { return ++single_index_iterator{*this}; }
+    __host__ __device__ single_index_iterator operator--(int) { return --single_index_iterator{*this}; }
+    // clang-format on
+};
+
+std::vector<size_t> get_large_sizes(int seed_value)
+{
+    std::vector<size_t> sizes = {
+        (size_t{1} << 30) - 1, size_t{1} << 30,
+        (size_t{1} << 31) - 1, size_t{1} << 31,
+        (size_t{1} << 32) - 1, size_t{1} << 32,
+        (size_t{1} << 35) - 1
+    };
+    const std::vector<size_t> random_sizes = test_utils::get_random_data<size_t>(
+        2, (size_t {1} << 30) + 1, (size_t {1} << 35) - 2, seed_value);
+    sizes.insert(sizes.end(), random_sizes.begin(), random_sizes.end());
+    std::sort(sizes.begin(), sizes.end());
+    return sizes;
+}
+
+TEST(RocprimDeviceScanTests, LargeIndicesInclusiveScan)
+{
+    int device_id = test_common_utils::obtain_device_from_ctest();
+    SCOPED_TRACE(testing::Message() << "with device_id= " << device_id);
+    HIP_CHECK(hipSetDevice(device_id));
+
+    using T = size_t;
+    using Iterator = typename rocprim::counting_iterator<T>;
+    using OutputIterator = single_index_iterator<T>;
+    const bool debug_synchronous = false;
+
+    const hipStream_t stream = 0; // default
+
+    for(size_t seed_index = 0; seed_index < random_seeds_count + seed_size; seed_index++)
+    {
+        unsigned int seed_value
+            = seed_index < random_seeds_count ? rand() : seeds[seed_index - random_seeds_count];
+        SCOPED_TRACE(testing::Message() << "with seed= " << seed_value);
+
+        const std::vector<size_t> sizes = get_large_sizes(seed_value);
+
+        for(const auto size : sizes)
+        {
+            SCOPED_TRACE(testing::Message() << "with size = " << size);
+
+            // Create counting_iterator<U> with random starting point
+            Iterator input_begin(test_utils::get_random_value<T>(0, 200, seed_value ^ size));
+
+            SCOPED_TRACE(testing::Message() << "with starting point = " << *input_begin);
+
+            T   output;
+            T * d_output;
+            HIP_CHECK(test_common_utils::hipMallocHelper(&d_output, sizeof(T)));
+            HIP_CHECK(hipDeviceSynchronize());
+
+            OutputIterator output_it{d_output, size - 1};
+
+            // temp storage
+            size_t temp_storage_size_bytes;
+            void * d_temp_storage = nullptr;
+
+            // Get temporary array size
+            HIP_CHECK(
+                rocprim::inclusive_scan(
+                    d_temp_storage, temp_storage_size_bytes,
+                    input_begin, output_it, size,
+                    ::rocprim::plus<T>(),
+                    stream, debug_synchronous
+                )
+            );
+
+            // temp_storage_size_bytes must be >0
+            ASSERT_GT(temp_storage_size_bytes, 0);
+
+            // allocate temporary storage
+            HIP_CHECK(test_common_utils::hipMallocHelper(&d_temp_storage, temp_storage_size_bytes));
+            HIP_CHECK(hipDeviceSynchronize());
+
+            // Run
+            HIP_CHECK(
+                rocprim::inclusive_scan(
+                    d_temp_storage, temp_storage_size_bytes,
+                    input_begin, output_it, size,
+                    ::rocprim::plus<T>(),
+                    stream, debug_synchronous
+                )
+            );
+            HIP_CHECK(hipGetLastError());
+            HIP_CHECK(hipDeviceSynchronize());
+
+            // Copy output to host
+            HIP_CHECK(hipMemcpy(&output, d_output, sizeof(T), hipMemcpyDeviceToHost));
+            HIP_CHECK(hipDeviceSynchronize());
+
+            // Sum of 'size' increasing numbers starting at 'n' is size * (2n + size - 1)
+            // The division is not integer division but either (size) or (2n + size - 1) has to be even.
+            const T multiplicand_1 = size;
+            const T multiplicand_2 = 2 * (*input_begin) + size - 1;
+            const T expected_output = (multiplicand_1 % 2 == 0) ? multiplicand_1 / 2 * multiplicand_2
+                                                                : multiplicand_1 * (multiplicand_2 / 2);
+
+            ASSERT_EQ(output, expected_output);
+
+            hipFree(d_temp_storage);
+            hipFree(d_output);
+        }
+    }
+}
+
+TEST(RocprimDeviceScanTests, LargeIndicesExclusiveScan)
+{
+    int device_id = test_common_utils::obtain_device_from_ctest();
+    SCOPED_TRACE(testing::Message() << "with device_id= " << device_id);
+    HIP_CHECK(hipSetDevice(device_id));
+
+    using T = size_t;
+    using Iterator = typename rocprim::counting_iterator<T>;
+    using OutputIterator = single_index_iterator<T>;
+    const bool debug_synchronous = false;
+
+    const hipStream_t stream = 0; // default
+
+    for(size_t seed_index = 0; seed_index < random_seeds_count + seed_size; seed_index++)
+    {
+        unsigned int seed_value
+            = seed_index < random_seeds_count ? rand() : seeds[seed_index - random_seeds_count];
+        SCOPED_TRACE(testing::Message() << "with seed= " << seed_value);
+
+        const std::vector<size_t> sizes = get_large_sizes(seed_value);
+
+        for(const auto size : sizes)
+        {
+            SCOPED_TRACE(testing::Message() << "with size = " << size);
+
+            // Create counting_iterator<U> with random starting point
+            Iterator input_begin(test_utils::get_random_value<T>(0, 200, seed_value ^ size));
+            T initial_value = test_utils::get_random_value<T>(1, 10, seed_value ^ *input_begin);
+
+            SCOPED_TRACE(testing::Message() << "with starting point = " << *input_begin);
+            SCOPED_TRACE(testing::Message() << "with initial value = " << initial_value);
+
+            T  output;
+            T* d_output;
+            HIP_CHECK(test_common_utils::hipMallocHelper(&d_output, sizeof(T)));
+            HIP_CHECK(hipDeviceSynchronize());
+
+            OutputIterator output_it{d_output, size - 1};
+
+            // temp storage
+            size_t temp_storage_size_bytes;
+            void * d_temp_storage = nullptr;
+
+            // Get temporary array size
+            HIP_CHECK(
+                rocprim::exclusive_scan(
+                    d_temp_storage, temp_storage_size_bytes,
+                    input_begin, output_it,
+                    initial_value, size,
+                    ::rocprim::plus<T>(),
+                    stream, debug_synchronous
+                )
+            );
+
+            // temp_storage_size_bytes must be >0
+            ASSERT_GT(temp_storage_size_bytes, 0);
+
+            // allocate temporary storage
+            HIP_CHECK(test_common_utils::hipMallocHelper(&d_temp_storage, temp_storage_size_bytes));
+            HIP_CHECK(hipDeviceSynchronize());
+
+            // Run
+            HIP_CHECK(
+                rocprim::exclusive_scan(
+                    d_temp_storage, temp_storage_size_bytes,
+                    input_begin, output_it,
+                    initial_value, size,
+                    ::rocprim::plus<T>(),
+                    stream, debug_synchronous
+                )
+            );
+            HIP_CHECK(hipGetLastError());
+            HIP_CHECK(hipDeviceSynchronize());
+
+            // Copy output to host
+            HIP_CHECK(hipMemcpy(&output, d_output, sizeof(T), hipMemcpyDeviceToHost));
+            HIP_CHECK(hipDeviceSynchronize());
+
+            // Sum of 'size' - 1 increasing numbers starting at 'n' is (size - 1) * (2n + size - 2)
+            // The division is not integer division but either (size - 1) or (2n + size - 2) has to be even.
+            const T multiplicand_1 = size - 1;
+            const T multiplicand_2 = 2 * (*input_begin) + size - 2;
+
+            const T product = (multiplicand_1 % 2 == 0) ? multiplicand_1 / 2 * multiplicand_2
+                                                        : multiplicand_1 * (multiplicand_2 / 2);
+
+            const T expected_output = initial_value + product;
+
+            ASSERT_EQ(output, expected_output);
+
+            hipFree(d_temp_storage);
+            hipFree(d_output);
+        }
+    }
 }

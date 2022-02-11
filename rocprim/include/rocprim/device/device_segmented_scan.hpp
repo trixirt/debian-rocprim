@@ -73,7 +73,7 @@ void segmented_scan_kernel(InputIterator input,
 
 #define ROCPRIM_DETAIL_HIP_SYNC_AND_RETURN_ON_ERROR(name, size, start) \
     { \
-        auto _error = hipPeekAtLastError(); \
+        auto _error = hipGetLastError(); \
         if(_error != hipSuccess) return _error; \
         if(debug_synchronous) \
         { \
@@ -109,9 +109,7 @@ hipError_t segmented_scan_impl(void * temporary_storage,
                                bool debug_synchronous)
 {
     using input_type = typename std::iterator_traits<InputIterator>::value_type;
-    using result_type = typename ::rocprim::detail::match_result_type<
-        input_type, BinaryFunction
-    >::type;
+    using result_type = typename std::conditional<Exclusive, InitValueType, input_type>::type;
 
     // Get default config if Config is default_config
     using config = default_or_custom_config<
@@ -255,9 +253,7 @@ hipError_t segmented_inclusive_scan(void * temporary_storage,
                                     bool debug_synchronous = false)
 {
     using input_type = typename std::iterator_traits<InputIterator>::value_type;
-    using result_type = typename ::rocprim::detail::match_result_type<
-        input_type, BinaryFunction
-    >::type;
+    using result_type = input_type;
 
     return detail::segmented_scan_impl<false, Config>(
         temporary_storage, storage_size,
@@ -482,9 +478,7 @@ hipError_t segmented_inclusive_scan(void * temporary_storage,
                                     bool debug_synchronous = false)
 {
     using input_type = typename std::iterator_traits<InputIterator>::value_type;
-    using result_type = typename ::rocprim::detail::match_result_type<
-        input_type, BinaryFunction
-    >::type;
+    using result_type = input_type;
     using flag_type = typename std::iterator_traits<HeadFlagIterator>::value_type;
     using headflag_scan_op_wrapper_type =
         detail::headflag_scan_op_wrapper<
@@ -601,10 +595,7 @@ hipError_t segmented_exclusive_scan(void * temporary_storage,
                                     hipStream_t stream = 0,
                                     bool debug_synchronous = false)
 {
-    using input_type = typename std::iterator_traits<InputIterator>::value_type;
-    using result_type = typename ::rocprim::detail::match_result_type<
-        input_type, BinaryFunction
-    >::type;
+    using result_type = InitValueType;
     using flag_type = typename std::iterator_traits<HeadFlagIterator>::value_type;
     using headflag_scan_op_wrapper_type =
         detail::headflag_scan_op_wrapper<

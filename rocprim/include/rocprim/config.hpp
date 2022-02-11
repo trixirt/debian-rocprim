@@ -27,6 +27,8 @@
 #define END_ROCPRIM_NAMESPACE \
     } /* rocprim */
 
+#include <limits>
+
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
 #include <hip/hip_bfloat16.h>
@@ -48,6 +50,15 @@
     #ifndef ROCPRIM_DEFAULT_MIN_WARPS_PER_EU
         #define ROCPRIM_DEFAULT_MIN_WARPS_PER_EU 1
     #endif
+    // Currently HIP on Windows has a bug involving inline device functions generating
+    // local memory/register allocation errors during compilation.  Current workaround is to
+    // use __attribute__((always_inline)) for the affected functions
+    #ifdef WIN32
+      #define ROCPRIM_INLINE inline __attribute__((always_inline))
+    #else
+      #define ROCPRIM_INLINE inline
+    #endif
+    #define ROCPRIM_FORCE_INLINE __attribute__((always_inline))
 #endif
 
 #if ( defined(__gfx801__) || \
@@ -99,12 +110,16 @@
 #define ROCPRIM_WARP_SIZE_64 64u
 #define ROCPRIM_MAX_WARP_SIZE ROCPRIM_WARP_SIZE_64
 
-#if (defined(_MSC_VER) && !defined(__clang__)) || defined(__GNUC__)
+#if (defined(_MSC_VER) && !defined(__clang__)) || (defined(__GNUC__) && !defined(__clang__))
 #define ROCPRIM_UNROLL
 #define ROCPRIM_NO_UNROLL
 #else
 #define ROCPRIM_UNROLL _Pragma("unroll")
 #define ROCPRIM_NO_UNROLL _Pragma("nounroll")
+#endif
+
+#ifndef ROCPRIM_GRID_SIZE_LIMIT
+#define ROCPRIM_GRID_SIZE_LIMIT std::numeric_limits<unsigned int>::max()
 #endif
 
 #endif // ROCPRIM_CONFIG_HPP_

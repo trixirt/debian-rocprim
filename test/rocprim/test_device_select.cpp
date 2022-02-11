@@ -29,6 +29,7 @@
 
 // required test headers
 #include "test_utils_types.hpp"
+#include <numeric>
 
 // Params for tests
 template<
@@ -61,7 +62,7 @@ typedef ::testing::Types<
     DeviceSelectParams<int8_t, int8_t>,
     DeviceSelectParams<uint8_t, uint8_t>,
     DeviceSelectParams<rocprim::half, rocprim::half>,
-    //TODO: Disable bfloat16 test until we get a better bfloat16 implemetation for host side
+    //TODO: Disable bfloat16 test until the follwing PR merge: https://github.com/ROCm-Developer-Tools/HIP/pull/2303
     //DeviceSelectParams<rocprim::bfloat16, rocprim::bfloat16>,
     DeviceSelectParams<unsigned char, float, int, true>,
     DeviceSelectParams<double, double, int, true>,
@@ -474,7 +475,7 @@ TYPED_TEST(RocprimDeviceSelectTests, Unique)
     using T = typename TestFixture::input_type;
     using U = typename TestFixture::output_type;
     using op_type = typename test_utils::select_equal_to_operator<T>::type;
-    using scan_op_type = typename test_utils::select_plus_operator<T>::type;
+    using scan_op_type = rocprim::plus<T>;
     static constexpr bool use_identity_iterator = TestFixture::use_identity_iterator;
     const bool debug_synchronous = TestFixture::debug_synchronous;
 
@@ -498,7 +499,7 @@ TYPED_TEST(RocprimDeviceSelectTests, Unique)
                 std::vector<T> input(size);
                 {
                     std::vector<T> input01 = test_utils::get_random_data01<T>(size, p, seed_value);
-                    test_utils::host_inclusive_scan(
+                    std::partial_sum(
                         input01.begin(), input01.end(), input.begin(), scan_op_type()
                     );
                 }
@@ -637,7 +638,7 @@ TEST(RocprimDeviceSelectTests, UniqueGuardedOperator)
     using T = int64_t;
     using F = int64_t;
     using U = int64_t;
-    using scan_op_type = typename test_utils::select_plus_operator<T>::type;
+    using scan_op_type = rocprim::plus<T>;
     static constexpr bool use_identity_iterator = false;
     const bool debug_synchronous = false;
 
@@ -663,7 +664,7 @@ TEST(RocprimDeviceSelectTests, UniqueGuardedOperator)
                 std::vector<F> input_flag(size);
                 {
                     std::vector<T> input01 = test_utils::get_random_data01<T>(size, p, seed_value + 1);
-                    test_utils::host_inclusive_scan(
+                    std::partial_sum(
                         input01.begin(), input01.end(), input_flag.begin(), scan_op_type()
                     );
                 }
