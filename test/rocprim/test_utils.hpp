@@ -50,19 +50,19 @@ static constexpr uint32_t random_data_generation_repeat_strides = 4;
 template<class T>
 struct precision_threshold
 {
-    static constexpr float percentage = 0.01f;
+    static constexpr float percentage = 0.0002f;
 };
 
 template<>
 struct precision_threshold<rocprim::half>
 {
-    static constexpr float percentage = 0.075f;
+    static constexpr float percentage = 0.01f;
 };
 
 template<>
 struct precision_threshold<rocprim::bfloat16>
 {
-    static constexpr float percentage = 0.6f;
+    static constexpr float percentage = 0.02f;
 };
 
 // Support half operators on host side
@@ -455,23 +455,31 @@ struct select_not_equal_to_operator<::rocprim::bfloat16>
     typedef bfloat16_not_equal_to type;
 };
 
-// Plus to operator selector
+/* Plus to operator selector for host-side
+ * On host-side we use `double` as accumulator and `rocprim::plus<double>` as operator
+ * for bfloat16 and half types. This is because additions of floating-point types are not
+ * associative. This would result in wrong output rather quickly for reductions and scan-algorithms
+ * on host-side for bfloat16 and half because of their low-precision.
+ */
 template<typename T>
-struct select_plus_operator
+struct select_plus_operator_host
 {
     typedef ::rocprim::plus<T> type;
+    typedef T acc_type;
 };
 
 template<>
-struct select_plus_operator<::rocprim::half>
+struct select_plus_operator_host<::rocprim::half>
 {
-    typedef half_plus type;
+    typedef ::rocprim::plus<double> type;
+    typedef double acc_type;
 };
 
 template<>
-struct select_plus_operator<::rocprim::bfloat16>
+struct select_plus_operator_host<::rocprim::bfloat16>
 {
-    typedef bfloat16_plus type;
+    typedef ::rocprim::plus<double> type;
+    typedef double acc_type;
 };
 
 // Minimum to operator selector
@@ -512,8 +520,8 @@ struct select_maximum_operator<::rocprim::bfloat16>
     typedef bfloat16_maximum type;
 };
 
-// std::uniform_int_distribution is undefined for anything other than listed
-// https://en.cppreference.com/w/cpp/numeric/random/uniform_int_distribution
+// std::uniform_int_distribution is undefined for anything other than
+// short, int, long, long long, unsigned short, unsigned int, unsigned long, or unsigned long long.
 template <typename T>
 struct is_valid_for_int_distribution :
     std::integral_constant<bool,
@@ -636,27 +644,92 @@ inline auto get_random_value(U min, V max, seed_type seed_value)
     return get_random_data<T>(random_data_generation_segments, min, max, seed_value)[0];
 }
 
-// Can't use std::prefix_sum for inclusive/exclusive scan, because
-// it does not handle short[] -> int(int a, int b) { a + b; } -> int[]
-// they way we expect. That's because sum in std::prefix_sum's implementation
-// is of type typename std::iterator_traits<InputIt>::value_type (short)
+template<class InputIt, class T,
+    std::enable_if_t<std::is_same<typename std::iterator_traits<InputIt>::value_type, rocprim::bfloat16>::value ||
+                     std::is_same<typename std::iterator_traits<InputIt>::value_type, rocprim::half>::value ||
+                     std::is_same<typename std::iterator_traits<InputIt>::value_type, float>::value
+                     , bool> = true>
+constexpr T host_reduce(InputIt first, InputIt last, rocprim::plus<T>)
+{
+    using accumulator_type = double;
+    // Calculate expected results on host
+    accumulator_type expected = accumulator_type(0);
+    rocprim::plus<accumulator_type> bin_op;
+    for(InputIt it = first; it != last; it++)
+    {
+        expected = bin_op(expected, static_cast<accumulator_type>(*it));
+    }
+    return static_cast<T>(expected);
+}
+
+template<class InputIt, class T,
+          std::enable_if_t<!std::is_same<typename std::iterator_traits<InputIt>::value_type, rocprim::bfloat16>::value &&
+                           !std::is_same<typename std::iterator_traits<InputIt>::value_type, rocprim::half>::value &&
+                           !std::is_same<typename std::iterator_traits<InputIt>::value_type, float>::value
+                           , bool> = true>
+constexpr T host_reduce(InputIt first, InputIt last, rocprim::plus<T> op)
+{
+    using acc_type = T;
+    // Calculate expected results on host
+    acc_type expected = acc_type(0);
+    for(InputIt it = first; it != last; it++)
+    {
+        expected = op(expected, *it);
+    }
+    return expected;
+}
+
+template<class InputIt, class OutputIt, class BinaryOperation, class acc_type>
+OutputIt host_inclusive_scan_impl(InputIt first, InputIt last,
+                             OutputIt d_first, BinaryOperation op, acc_type)
+{
+    if (first == last) return d_first;
+
+    acc_type sum = *first;
+    *d_first = sum;
+
+    while (++first != last) {
+        sum = op(sum, *first);
+        *++d_first = sum;
+    }
+    return ++d_first;
+}
+
 template<class InputIt, class OutputIt, class BinaryOperation>
 OutputIt host_inclusive_scan(InputIt first, InputIt last,
                              OutputIt d_first, BinaryOperation op)
 {
-    using input_type = typename std::iterator_traits<InputIt>::value_type;
-    using result_type = typename ::rocprim::detail::match_result_type<
-        input_type, BinaryOperation
-    >::type;
+    using acc_type = typename std::iterator_traits<InputIt>::value_type;
+    return host_inclusive_scan_impl(first, last, d_first, op, acc_type{});
+}
 
+template<class InputIt, class OutputIt, class T,
+          std::enable_if_t<std::is_same<typename std::iterator_traits<InputIt>::value_type, rocprim::bfloat16>::value ||
+                           std::is_same<typename std::iterator_traits<InputIt>::value_type, rocprim::half>::value ||
+                           std::is_same<typename std::iterator_traits<InputIt>::value_type, float>::value
+                           , bool> = true>
+OutputIt host_inclusive_scan(InputIt first, InputIt last,
+                             OutputIt d_first, rocprim::plus<T>)
+{
+    using acc_type = double;
+    return host_inclusive_scan_impl(first, last, d_first, rocprim::plus<acc_type>(), acc_type{});
+}
+
+template<class InputIt, class T, class OutputIt, class BinaryOperation, class acc_type>
+OutputIt host_exclusive_scan_impl(InputIt first, InputIt last,
+                             T initial_value, OutputIt d_first,
+                             BinaryOperation op, acc_type)
+{
     if (first == last) return d_first;
 
-    result_type sum = *first;
-    *d_first = sum;
+    acc_type sum = initial_value;
+    *d_first = initial_value;
 
-    while (++first != last) {
-       sum = op(sum, *first);
-       *++d_first = sum;
+    while ((first+1) != last)
+    {
+        sum = op(sum, *first);
+        *++d_first = sum;
+        first++;
     }
     return ++d_first;
 }
@@ -666,38 +739,31 @@ OutputIt host_exclusive_scan(InputIt first, InputIt last,
                              T initial_value, OutputIt d_first,
                              BinaryOperation op)
 {
-    using input_type = typename std::iterator_traits<InputIt>::value_type;
-    using result_type = typename ::rocprim::detail::match_result_type<
-        input_type, BinaryOperation
-    >::type;
-
-    if (first == last) return d_first;
-
-    result_type sum = initial_value;
-    *d_first = initial_value;
-
-    while ((first+1) != last)
-    {
-       sum = op(sum, *first);
-       *++d_first = sum;
-       first++;
-    }
-    return ++d_first;
+    using acc_type = typename std::iterator_traits<InputIt>::value_type;
+    return host_exclusive_scan_impl(first, last, initial_value, d_first, op, acc_type{});
 }
 
-template<class InputIt, class KeyIt, class T, class OutputIt, class BinaryOperation, class KeyCompare>
-OutputIt host_exclusive_scan_by_key(InputIt first, InputIt last, KeyIt k_first,
-                                    T initial_value, OutputIt d_first,
-                                    BinaryOperation op, KeyCompare key_compare_op)
+template<class InputIt, class T, class OutputIt, class U,
+          std::enable_if_t<std::is_same<typename std::iterator_traits<InputIt>::value_type, rocprim::bfloat16>::value ||
+                               std::is_same<typename std::iterator_traits<InputIt>::value_type, rocprim::half>::value ||
+                               std::is_same<typename std::iterator_traits<InputIt>::value_type, float>::value
+                           , bool> = true>
+OutputIt host_exclusive_scan(InputIt first, InputIt last,
+                             T initial_value, OutputIt d_first,
+                             rocprim::plus<U>)
 {
-    using input_type = typename std::iterator_traits<InputIt>::value_type;
-    using result_type = typename ::rocprim::detail::match_result_type<
-        input_type, BinaryOperation
-    >::type;
+    using acc_type = double;
+    return host_exclusive_scan_impl(first, last, initial_value, d_first, rocprim::plus<acc_type>(), acc_type{});
+}
 
+template<class InputIt, class KeyIt, class T, class OutputIt, class BinaryOperation, class KeyCompare, class acc_type>
+OutputIt host_exclusive_scan_by_key_impl(InputIt first, InputIt last, KeyIt k_first,
+                                         T initial_value, OutputIt d_first,
+                                         BinaryOperation op, KeyCompare key_compare_op, acc_type)
+{
     if (first == last) return d_first;
 
-    result_type sum = initial_value;
+    acc_type sum = initial_value;
     *d_first = initial_value;
 
     while ((first+1) != last)
@@ -714,6 +780,74 @@ OutputIt host_exclusive_scan_by_key(InputIt first, InputIt last, KeyIt k_first,
         first++;
     }
     return ++d_first;
+}
+template<class InputIt, class KeyIt, class T, class OutputIt, class BinaryOperation, class KeyCompare>
+OutputIt host_exclusive_scan_by_key(InputIt first, InputIt last, KeyIt k_first,
+                                    T initial_value, OutputIt d_first,
+                                    BinaryOperation op, KeyCompare key_compare_op)
+{
+    using acc_type = typename std::iterator_traits<InputIt>::value_type;
+    return host_exclusive_scan_by_key_impl(first, last, k_first, initial_value, d_first, op, key_compare_op, acc_type{});
+}
+
+template<class InputIt, class KeyIt, class T, class OutputIt, class U, class KeyCompare,
+          std::enable_if_t<std::is_same<typename std::iterator_traits<InputIt>::value_type, rocprim::bfloat16>::value ||
+                               std::is_same<typename std::iterator_traits<InputIt>::value_type, rocprim::half>::value ||
+                               std::is_same<typename std::iterator_traits<InputIt>::value_type, float>::value
+                           , bool> = true>
+OutputIt host_exclusive_scan_by_key(InputIt first, InputIt last, KeyIt k_first,
+                                    T initial_value, OutputIt d_first,
+                                    rocprim::plus<U>, KeyCompare key_compare_op)
+{
+    using acc_type = double;
+    return host_exclusive_scan_by_key_impl(first, last, k_first, initial_value, d_first, rocprim::plus<acc_type>(), key_compare_op, acc_type{});
+}
+
+
+template<class InputIt, class KeyIt, class OutputIt, class BinaryOperation, class KeyCompare, class acc_type>
+OutputIt host_inclusive_scan_by_key_impl(InputIt first, InputIt last, KeyIt k_first,
+                                         OutputIt d_first,
+                                         BinaryOperation op, KeyCompare key_compare_op, acc_type)
+{
+    if (first == last) return d_first;
+
+    acc_type sum = *first;
+    *d_first = sum;
+
+    while (++first != last)
+    {
+        if(key_compare_op(*k_first, *++k_first))
+        {
+            sum = op(sum, *first);
+        }
+        else
+        {
+            sum = *first;
+        }
+        *++d_first = sum;
+    }
+    return ++d_first;
+}
+template<class InputIt, class KeyIt, class OutputIt, class BinaryOperation, class KeyCompare>
+OutputIt host_inclusive_scan_by_key(InputIt first, InputIt last, KeyIt k_first,
+                                    OutputIt d_first,
+                                    BinaryOperation op, KeyCompare key_compare_op)
+{
+    using acc_type = typename std::iterator_traits<InputIt>::value_type;
+    return host_inclusive_scan_by_key_impl(first, last, k_first, d_first, op, key_compare_op, acc_type{});
+}
+
+template<class InputIt, class KeyIt, class OutputIt, class U, class KeyCompare,
+          std::enable_if_t<std::is_same<typename std::iterator_traits<InputIt>::value_type, rocprim::bfloat16>::value ||
+                               std::is_same<typename std::iterator_traits<InputIt>::value_type, rocprim::half>::value ||
+                               std::is_same<typename std::iterator_traits<InputIt>::value_type, float>::value
+                           , bool> = true>
+OutputIt host_inclusive_scan_by_key(InputIt first, InputIt last, KeyIt k_first,
+                                    OutputIt d_first,
+                                    rocprim::plus<U>, KeyCompare key_compare_op)
+{
+    using acc_type = double;
+    return host_inclusive_scan_by_key_impl(first, last, k_first, d_first, rocprim::plus<acc_type>(), key_compare_op, acc_type{});
 }
 
 inline
@@ -823,6 +957,13 @@ struct custom_test_type
         return !(*this == other);
     }
 };
+
+template<class T>
+struct precision_threshold<custom_test_type<T>>
+{
+    static constexpr float percentage = 0.01f;
+};
+
 
 //Overload for rocprim::half
 template<>
@@ -1160,6 +1301,22 @@ struct numeric_limits : public std::conditional<
 {
 };
 
+template<> struct numeric_limits<rocprim::half> : public std::numeric_limits<rocprim::half> {
+public:
+    static rocprim::half min() {
+        return rocprim::half(0.00006104f);
+    };
+};
+
+template<> class numeric_limits<rocprim::bfloat16> : public std::numeric_limits<rocprim::bfloat16> {
+public:
+    static rocprim::bfloat16 min() {
+        rocprim::bfloat16 a;
+        a.data = 0x0080;
+        return a;
+    };
+};
+
 template<class T>
 inline auto get_random_data(size_t size, T min, T max, seed_type seed_value)
     -> typename std::enable_if<
@@ -1279,7 +1436,7 @@ auto assert_near(const std::vector<T>& result, const std::vector<T>& expected, c
     ASSERT_EQ(result.size(), expected.size());
     for(size_t i = 0; i < result.size(); i++)
     {
-        auto diff = std::max<T>(std::abs(percent * expected[i]), T(percent));
+        auto diff = std::abs(percent * expected[i]);
         ASSERT_NEAR(result[i], expected[i], diff) << "where index = " << i;
     }
 }
@@ -1301,7 +1458,8 @@ void assert_near(const std::vector<rocprim::half>& result, const std::vector<roc
     ASSERT_EQ(result.size(), expected.size());
     for(size_t i = 0; i < result.size(); i++)
     {
-        auto diff = std::max<float>(std::abs(percent * static_cast<float>(expected[i])), percent);
+        if(static_cast<float>(result[i])==static_cast<float>(expected[i])) continue;
+        auto diff = std::abs(percent * static_cast<float>(expected[i]));
         ASSERT_NEAR(static_cast<float>(result[i]), static_cast<float>(expected[i]), diff) << "where index = " << i;
     }
 }
@@ -1311,7 +1469,8 @@ void assert_near(const std::vector<rocprim::bfloat16>& result, const std::vector
     ASSERT_EQ(result.size(), expected.size());
     for(size_t i = 0; i < result.size(); i++)
     {
-        auto diff = std::max<float>(std::abs(percent * static_cast<float>(expected[i])), percent);
+        if(result[i]==expected[i]) continue;
+        auto diff = std::abs(percent * static_cast<float>(expected[i]));
         ASSERT_NEAR(static_cast<float>(result[i]), static_cast<float>(expected[i]), diff) << "where index = " << i;
     }
 }
@@ -1321,10 +1480,10 @@ void assert_near(const std::vector<custom_test_type<rocprim::half>>& result, con
     ASSERT_EQ(result.size(), expected.size());
     for(size_t i = 0; i < result.size(); i++)
     {
-        auto diff1 = std::max<float>(std::abs(percent * static_cast<float>(expected[i].x)), percent);
-        auto diff2 = std::max<float>(std::abs(percent * static_cast<float>(expected[i].y)), percent);
-        ASSERT_NEAR(static_cast<float>(result[i].x), static_cast<float>(expected[i].x), diff1) << "where index = " << i;
-        ASSERT_NEAR(static_cast<float>(result[i].y), static_cast<float>(expected[i].y), diff2) << "where index = " << i;
+        auto diff1 = std::abs(percent * static_cast<float>(expected[i].x));
+        auto diff2 = std::abs(percent * static_cast<float>(expected[i].y));
+        if(static_cast<float>(result[i].x)!=static_cast<float>(expected[i].x)) ASSERT_NEAR(static_cast<float>(result[i].x), static_cast<float>(expected[i].x), diff1) << "where index = " << i;
+        if(static_cast<float>(result[i].y)!=static_cast<float>(expected[i].y)) ASSERT_NEAR(static_cast<float>(result[i].y), static_cast<float>(expected[i].y), diff2) << "where index = " << i;
     }
 }
 
@@ -1333,10 +1492,10 @@ void assert_near(const std::vector<custom_test_type<rocprim::bfloat16>>& result,
     ASSERT_EQ(result.size(), expected.size());
     for(size_t i = 0; i < result.size(); i++)
     {
-        auto diff1 = std::max<float>(std::abs(percent * static_cast<float>(expected[i].x)), percent);
-        auto diff2 = std::max<float>(std::abs(percent * static_cast<float>(expected[i].y)), percent);
-        ASSERT_NEAR(static_cast<float>(result[i].x), static_cast<float>(expected[i].x), diff1) << "where index = " << i;
-        ASSERT_NEAR(static_cast<float>(result[i].y), static_cast<float>(expected[i].y), diff2) << "where index = " << i;
+        auto diff1 = std::abs(percent * static_cast<float>(expected[i].x));
+        auto diff2 = std::abs(percent * static_cast<float>(expected[i].y));
+        if(result[i].x!=expected[i].x) ASSERT_NEAR(static_cast<float>(result[i].x), static_cast<float>(expected[i].x), diff1) << "where index = " << i;
+        if(result[i].y!=expected[i].y) ASSERT_NEAR(static_cast<float>(result[i].y), static_cast<float>(expected[i].y), diff2) << "where index = " << i;
     }
 }
 
@@ -1348,8 +1507,8 @@ auto assert_near(const std::vector<custom_test_type<T>>& result, const std::vect
     ASSERT_EQ(result.size(), expected.size());
     for(size_t i = 0; i < result.size(); i++)
     {
-        auto diff1 = std::max<T>(std::abs(percent * expected[i].x), T(percent));
-        auto diff2 = std::max<T>(std::abs(percent * expected[i].y), T(percent));
+        auto diff1 = std::abs(percent * expected[i].x);
+        auto diff2 = std::abs(percent * expected[i].y);
         ASSERT_NEAR(result[i].x, expected[i].x, diff1) << "where index = " << i;
         ASSERT_NEAR(result[i].y, expected[i].y, diff2) << "where index = " << i;
     }
@@ -1359,7 +1518,7 @@ template<class T>
 auto assert_near(const T& result, const T& expected, const float percent)
     -> typename std::enable_if<std::is_floating_point<T>::value>::type
 {
-    auto diff = std::max<T>(std::abs(percent * expected), T(percent));
+    auto diff = std::abs(percent * expected);
     ASSERT_NEAR(result, expected, diff);
 }
 
@@ -1373,13 +1532,15 @@ auto assert_near(const T& result, const T& expected, const float percent)
 
 void assert_near(const rocprim::half& result, const rocprim::half& expected, float percent)
 {
-    auto diff = std::max<float>(std::abs(percent * static_cast<float>(expected)), percent);
+    if(static_cast<float>(result)==static_cast<float>(expected)) return;
+    auto diff = std::abs(percent * static_cast<float>(expected));
     ASSERT_NEAR(static_cast<float>(result), static_cast<float>(expected), diff);
 }
 
 void assert_near(const rocprim::bfloat16& result, const rocprim::bfloat16& expected, float percent)
 {
-    auto diff = std::max<float>(std::abs(percent * static_cast<float>(expected)), percent);
+    if(result==expected) return;
+    auto diff = std::abs(percent * static_cast<float>(expected));
     ASSERT_NEAR(static_cast<float>(result), static_cast<float>(expected), diff);
 }
 
@@ -1387,14 +1548,28 @@ template<class T>
 auto assert_near(const custom_test_type<T>& result, const custom_test_type<T>& expected, const float percent)
     -> typename std::enable_if<std::is_floating_point<T>::value>::type
 {
-    auto diff1 = std::max<T>(std::abs(percent * expected.x), T(percent));
-    auto diff2 = std::max<T>(std::abs(percent * expected.y), T(percent));
+    auto diff1 = std::abs(percent * expected.x);
+    auto diff2 = std::abs(percent * expected.y);
     ASSERT_NEAR(result.x, expected.x, diff1);
     ASSERT_NEAR(result.y, expected.y, diff2);
 }
 
 template<class T>
-void assert_eq(const std::vector<T>& result, const std::vector<T>& expected)
+void assert_bit_eq(const std::vector<T>& result, const std::vector<T>& expected)
+{
+    ASSERT_EQ(result.size(), expected.size());
+    for(size_t i = 0; i < result.size(); i++)
+    {
+        bool the_same = true;
+        for(size_t j = 0; j < sizeof(T); j++)
+            the_same &= ((reinterpret_cast<const uint8_t*>(&result[i]))[j] == (reinterpret_cast<const uint8_t*>(&expected[i]))[j]);
+        ASSERT_EQ(true, the_same) << "where index = " << i;
+    }
+}
+
+template<class T>
+auto assert_eq(const std::vector<T>& result, const std::vector<T>& expected)
+    -> typename std::enable_if<!rocprim::is_floating_point<T>::value, void>::type
 {
     ASSERT_EQ(result.size(), expected.size());
     for(size_t i = 0; i < result.size(); i++)
@@ -1403,7 +1578,21 @@ void assert_eq(const std::vector<T>& result, const std::vector<T>& expected)
     }
 }
 
-void assert_eq(const std::vector<rocprim::half>& result, const std::vector<rocprim::half>& expected)
+template<class T>
+auto assert_eq(const std::vector<T>& result, const std::vector<T>& expected)
+    -> typename std::enable_if<rocprim::is_floating_point<T>::value, void>::type
+{
+    ASSERT_EQ(result.size(), expected.size());
+    for(size_t i = 0; i < result.size(); i++)
+    {
+        if( result[i] != result[i] )
+            ASSERT_EQ(result[i] != result[i], expected[i] != expected[i]) << "NAN check failed where index = " << i;
+        else
+            ASSERT_EQ(result[i], expected[i]) << "where index = " << i;
+    }
+}
+
+auto assert_eq(const std::vector<rocprim::half>& result, const std::vector<rocprim::half>& expected)
 {
     ASSERT_EQ(result.size(), expected.size());
     for(size_t i = 0; i < result.size(); i++)
@@ -1412,7 +1601,7 @@ void assert_eq(const std::vector<rocprim::half>& result, const std::vector<rocpr
     }
 }
 
-void assert_eq(const std::vector<rocprim::bfloat16>& result, const std::vector<rocprim::bfloat16>& expected)
+auto assert_eq(const std::vector<rocprim::bfloat16>& result, const std::vector<rocprim::bfloat16>& expected)
 {
     ASSERT_EQ(result.size(), expected.size());
     for(size_t i = 0; i < result.size(); i++)
@@ -1447,17 +1636,28 @@ void custom_assert_eq(const std::vector<rocprim::bfloat16>& result, const std::v
 }
 
 template<class T>
-void assert_eq(const T& result, const T& expected)
+auto assert_eq(const T& result, const T& expected)
+    -> typename std::enable_if<!rocprim::is_floating_point<T>::value, void>::type
 {
     ASSERT_EQ(result, expected);
 }
 
-void assert_eq(const rocprim::half& result, const rocprim::half& expected)
+template<class T>
+auto assert_eq(const T& result, const T& expected)
+    -> typename std::enable_if<rocprim::is_floating_point<T>::value, void>::type
+{
+    if( result != result )
+        ASSERT_EQ( result != result, expected != expected);
+    else
+        ASSERT_EQ(result, expected);
+}
+
+auto assert_eq(const rocprim::half& result, const rocprim::half& expected)
 {
     ASSERT_EQ(half_to_native(result), half_to_native(expected));
 }
 
-void assert_eq(const rocprim::bfloat16& result, const rocprim::bfloat16& expected)
+auto assert_eq(const rocprim::bfloat16& result, const rocprim::bfloat16& expected)
 {
     ASSERT_EQ(bfloat16_to_native(result), bfloat16_to_native(expected));
 }

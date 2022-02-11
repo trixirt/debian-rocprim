@@ -41,13 +41,17 @@ struct default_config { };
 ///
 /// \tparam BlockSize - number of threads in a block.
 /// \tparam ItemsPerThread - number of items processed by each thread.
-template<unsigned int BlockSize, unsigned int ItemsPerThread>
+template <unsigned int BlockSize,
+          unsigned int ItemsPerThread,
+          unsigned int SizeLimit = ROCPRIM_GRID_SIZE_LIMIT>
 struct kernel_config
 {
     /// \brief Number of threads in a block.
     static constexpr unsigned int block_size = BlockSize;
     /// \brief Number of items processed by each thread.
     static constexpr unsigned int items_per_thread = ItemsPerThread;
+    /// \brief Number of items processed by a single kernel launch.
+    static constexpr unsigned int size_limit = SizeLimit;
 };
 
 namespace detail
@@ -85,46 +89,6 @@ struct limit_block_size<MaxBlockSize, SharedMemoryPerThread, MinBlockSize, true>
 
     static constexpr unsigned int value = MaxBlockSize;
 };
-
-template<class...>
-using void_t = void;
-
-template<class T, class = void>
-struct extract_type : T { };
-
-template<class T>
-struct extract_type<T, void_t<typename T::type> > : extract_type<typename T::type> { };
-
-template<bool Value, class T>
-struct select_type_case
-{
-    static constexpr bool value = Value;
-    using type = T;
-};
-
-template<class Case, class... OtherCases>
-struct select_type
-    : std::conditional<
-        Case::value,
-        extract_type<typename Case::type>,
-        select_type<OtherCases...>
-    >::type { };
-
-template<class T>
-struct select_type<select_type_case<true, T>> : extract_type<T> { };
-
-template<class T>
-struct select_type<select_type_case<false, T>>
-{
-    static_assert(
-        sizeof(T) == 0,
-        "Cannot select any case. "
-        "The last case must have true condition or be a fallback type."
-    );
-};
-
-template<class Fallback>
-struct select_type<Fallback> : extract_type<Fallback> { };
 
 template<unsigned int Arch, class T>
 struct select_arch_case

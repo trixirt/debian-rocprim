@@ -31,7 +31,11 @@ typed_test_def(RocprimWarpScanTests, name_suffix, InclusiveScan)
     HIP_CHECK(hipSetDevice(device_id));
 
     using T = typename TestFixture::params::type;
-    using binary_op_type = typename test_utils::select_plus_operator<T>::type;
+    // for bfloat16 and half we use double for host-side accumulation
+    using binary_op_type_host = typename test_utils::select_plus_operator_host<T>::type;
+    binary_op_type_host binary_op_host;
+    using acc_type = typename test_utils::select_plus_operator_host<T>::acc_type;
+
     // logical warp side for warp primitive, execution warp size is always rocprim::warp_size()
     static constexpr size_t logical_warp_size = TestFixture::params::warp_size;
 
@@ -77,13 +81,14 @@ typed_test_def(RocprimWarpScanTests, name_suffix, InclusiveScan)
         std::vector<T> expected(output.size(), (T)0);
 
         // Calculate expected results on host
-        binary_op_type binary_op;
         for(size_t i = 0; i < input.size() / logical_warp_size; i++)
         {
+            acc_type accumulator(0);
             for(size_t j = 0; j < logical_warp_size; j++)
             {
                 auto idx = i * logical_warp_size + j;
-                expected[idx] = apply(binary_op, input[idx], expected[j > 0 ? idx-1 : idx]);
+                accumulator = binary_op_host(input[idx], accumulator);
+                expected[idx] = static_cast<T>(accumulator);
             }
         }
 
@@ -119,7 +124,7 @@ typed_test_def(RocprimWarpScanTests, name_suffix, InclusiveScan)
             );
         }
 
-        HIP_CHECK(hipPeekAtLastError());
+        HIP_CHECK(hipGetLastError());
         HIP_CHECK(hipDeviceSynchronize());
 
         // Read from device memory
@@ -147,7 +152,11 @@ typed_test_def(RocprimWarpScanTests, name_suffix, InclusiveScanReduce)
     HIP_CHECK(hipSetDevice(device_id));
 
     using T = typename TestFixture::params::type;
-    using binary_op_type = typename test_utils::select_plus_operator<T>::type;
+    // for bfloat16 and half we use double for host-side accumulation
+    using binary_op_type_host = typename test_utils::select_plus_operator_host<T>::type;
+    binary_op_type_host binary_op_host;
+    using acc_type = typename test_utils::select_plus_operator_host<T>::acc_type;
+
     // logical warp side for warp primitive, execution warp size is always rocprim::warp_size()
     static constexpr size_t logical_warp_size = TestFixture::params::warp_size;
 
@@ -195,13 +204,14 @@ typed_test_def(RocprimWarpScanTests, name_suffix, InclusiveScanReduce)
         std::vector<T> expected_reductions(output_reductions.size(), (T)0);
 
         // Calculate expected results on host
-        binary_op_type binary_op;
         for(size_t i = 0; i < output.size() / logical_warp_size; i++)
         {
+            acc_type accumulator(0);
             for(size_t j = 0; j < logical_warp_size; j++)
             {
                 auto idx = i * logical_warp_size + j;
-                expected[idx] = apply(binary_op, input[idx], expected[j > 0 ? idx-1 : idx]);
+                accumulator = binary_op_host(input[idx],accumulator);
+                expected[idx] = static_cast<T>(accumulator);
             }
             expected_reductions[i] = expected[(i+1) * logical_warp_size - 1];
         }
@@ -245,7 +255,7 @@ typed_test_def(RocprimWarpScanTests, name_suffix, InclusiveScanReduce)
             );
         }
 
-        HIP_CHECK(hipPeekAtLastError());
+        HIP_CHECK(hipGetLastError());
         HIP_CHECK(hipDeviceSynchronize());
 
         // Read from device memory
@@ -283,7 +293,11 @@ typed_test_def(RocprimWarpScanTests, name_suffix, ExclusiveScan)
     HIP_CHECK(hipSetDevice(device_id));
 
     using T = typename TestFixture::params::type;
-    using binary_op_type = typename test_utils::select_plus_operator<T>::type;
+     // for bfloat16 and half we use double for host-side accumulation
+    using binary_op_type_host = typename test_utils::select_plus_operator_host<T>::type;
+    binary_op_type_host binary_op_host;
+    using acc_type = typename test_utils::select_plus_operator_host<T>::acc_type;
+
     // logical warp side for warp primitive, execution warp size is always rocprim::warp_size()
     static constexpr size_t logical_warp_size = TestFixture::params::warp_size;
 
@@ -330,14 +344,15 @@ typed_test_def(RocprimWarpScanTests, name_suffix, ExclusiveScan)
         const T init = test_utils::get_random_value<T>(0, 100, seed_value);
 
         // Calculate expected results on host
-        binary_op_type binary_op;
         for(size_t i = 0; i < input.size() / logical_warp_size; i++)
         {
+            acc_type accumulator(init);
             expected[i * logical_warp_size] = init;
             for(size_t j = 1; j < logical_warp_size; j++)
             {
                 auto idx = i * logical_warp_size + j;
-                expected[idx] = apply(binary_op, input[idx-1], expected[idx-1]);
+                accumulator = binary_op_host(input[idx-1], accumulator);
+                expected[idx] = static_cast<T>(accumulator);
             }
         }
 
@@ -373,7 +388,7 @@ typed_test_def(RocprimWarpScanTests, name_suffix, ExclusiveScan)
             );
         }
 
-        HIP_CHECK(hipPeekAtLastError());
+        HIP_CHECK(hipGetLastError());
         HIP_CHECK(hipDeviceSynchronize());
 
         // Read from device memory
@@ -402,7 +417,11 @@ typed_test_def(RocprimWarpScanTests, name_suffix, ExclusiveReduceScan)
     HIP_CHECK(hipSetDevice(device_id));
 
     using T = typename TestFixture::params::type;
-    using binary_op_type = typename test_utils::select_plus_operator<T>::type;
+     // for bfloat16 and half we use double for host-side accumulation
+    using binary_op_type_host = typename test_utils::select_plus_operator_host<T>::type;
+    binary_op_type_host binary_op_host;
+    using acc_type = typename test_utils::select_plus_operator_host<T>::acc_type;
+
     // logical warp side for warp primitive, execution warp size is always rocprim::warp_size()
     static constexpr size_t logical_warp_size = TestFixture::params::warp_size;
 
@@ -451,21 +470,23 @@ typed_test_def(RocprimWarpScanTests, name_suffix, ExclusiveReduceScan)
         const T init = test_utils::get_random_value<T>(0, 100, seed_value);
 
         // Calculate expected results on host
-        binary_op_type binary_op;
         for(size_t i = 0; i < input.size() / logical_warp_size; i++)
         {
+            acc_type accumulator(init);
             expected[i * logical_warp_size] = init;
             for(size_t j = 1; j < logical_warp_size; j++)
             {
                 auto idx = i * logical_warp_size + j;
-                expected[idx] = apply(binary_op, input[idx-1], expected[idx-1]);
+                accumulator = binary_op_host(input[idx-1], accumulator);
+                expected[idx] = static_cast<T>(accumulator);
             }
 
-            expected_reductions[i] = 0;
+            acc_type accumulator_reductions(0);
             for(size_t j = 0; j < logical_warp_size; j++)
             {
                 auto idx = i * logical_warp_size + j;
-                expected_reductions[i] = apply(binary_op, expected_reductions[i], input[idx]);
+                accumulator_reductions = binary_op_host(input[idx], accumulator_reductions);
+                expected_reductions[i] = static_cast<T>(accumulator_reductions);
             }
         }
 
@@ -507,7 +528,7 @@ typed_test_def(RocprimWarpScanTests, name_suffix, ExclusiveReduceScan)
                 device_input, device_output, device_output_reductions, init
             );
         }
-        HIP_CHECK(hipPeekAtLastError());
+        HIP_CHECK(hipGetLastError());
         HIP_CHECK(hipDeviceSynchronize());
 
         // Read from device memory
@@ -545,7 +566,11 @@ typed_test_def(RocprimWarpScanTests, name_suffix, Scan)
     HIP_CHECK(hipSetDevice(device_id));
 
     using T = typename TestFixture::params::type;
-    using binary_op_type = typename test_utils::select_plus_operator<T>::type;
+     // for bfloat16 and half we use double for host-side accumulation
+    using binary_op_type_host = typename test_utils::select_plus_operator_host<T>::type;
+    binary_op_type_host binary_op_host;
+    using acc_type = typename test_utils::select_plus_operator_host<T>::acc_type;
+
     // logical warp side for warp primitive, execution warp size is always rocprim::warp_size()
     static constexpr size_t logical_warp_size = TestFixture::params::warp_size;
 
@@ -594,17 +619,20 @@ typed_test_def(RocprimWarpScanTests, name_suffix, Scan)
         const T init = test_utils::get_random_value<T>(0, 100, seed_value);
 
         // Calculate expected results on host
-        binary_op_type binary_op;
         for(size_t i = 0; i < input.size() / logical_warp_size; i++)
         {
+            acc_type accumulator_inclusive(0);
+            acc_type accumulator_exclusive = init;
             expected_exclusive[i * logical_warp_size] = init;
             for(size_t j = 0; j < logical_warp_size; j++)
             {
                 auto idx = i * logical_warp_size + j;
-                expected_inclusive[idx] = apply(binary_op, input[idx], expected_inclusive[j > 0 ? idx-1 : idx]);
+                accumulator_inclusive = binary_op_host(input[idx], accumulator_inclusive);
+                expected_inclusive[idx] = static_cast<T>(accumulator_inclusive);
                 if(j > 0)
                 {
-                    expected_exclusive[idx] = apply(binary_op, input[idx-1], expected_exclusive[idx-1]);
+                    accumulator_exclusive = binary_op_host(input[idx-1], accumulator_exclusive);
+                    expected_exclusive[idx] = static_cast<T>(accumulator_exclusive);
                 }
             }
         }
@@ -653,7 +681,7 @@ typed_test_def(RocprimWarpScanTests, name_suffix, Scan)
             );
         }
 
-        HIP_CHECK(hipPeekAtLastError());
+        HIP_CHECK(hipGetLastError());
         HIP_CHECK(hipDeviceSynchronize());
 
         // Read from device memory
@@ -691,7 +719,11 @@ typed_test_def(RocprimWarpScanTests, name_suffix, ScanReduce)
     HIP_CHECK(hipSetDevice(device_id));
 
     using T = typename TestFixture::params::type;
-    using binary_op_type = typename test_utils::select_plus_operator<T>::type;
+     // for bfloat16 and half we use double for host-side accumulation
+    using binary_op_type_host = typename test_utils::select_plus_operator_host<T>::type;
+    binary_op_type_host binary_op_host;
+    using acc_type = typename test_utils::select_plus_operator_host<T>::acc_type;
+
     // logical warp side for warp primitive, execution warp size is always rocprim::warp_size()
     static constexpr size_t logical_warp_size = TestFixture::params::warp_size;
 
@@ -742,17 +774,20 @@ typed_test_def(RocprimWarpScanTests, name_suffix, ScanReduce)
         const T init = test_utils::get_random_value<T>(0, 100, seed_value);
 
         // Calculate expected results on host
-        binary_op_type binary_op;
         for(size_t i = 0; i < input.size() / logical_warp_size; i++)
         {
+            acc_type accumulator_inclusive(0);
+            acc_type accumulator_exclusive(init);
             expected_exclusive[i * logical_warp_size] = init;
             for(size_t j = 0; j < logical_warp_size; j++)
             {
                 auto idx = i * logical_warp_size + j;
-                expected_inclusive[idx] = apply(binary_op, input[idx], expected_inclusive[j > 0 ? idx-1 : idx]);
+                accumulator_inclusive = binary_op_host(input[idx], accumulator_inclusive);
+                expected_inclusive[idx] = static_cast<T>(accumulator_inclusive);
                 if(j > 0)
                 {
-                    expected_exclusive[idx] = apply(binary_op, input[idx-1], expected_exclusive[idx-1]);
+                    accumulator_exclusive = binary_op_host(input[idx-1], accumulator_exclusive);
+                    expected_exclusive[idx] = static_cast<T>(accumulator_exclusive);
                 }
             }
             expected_reductions[i] = expected_inclusive[(i+1) * logical_warp_size - 1];
@@ -811,7 +846,7 @@ typed_test_def(RocprimWarpScanTests, name_suffix, ScanReduce)
             );
         }
 
-        HIP_CHECK(hipPeekAtLastError());
+        HIP_CHECK(hipGetLastError());
         HIP_CHECK(hipDeviceSynchronize());
 
         // Read from device memory
@@ -859,6 +894,14 @@ typed_test_def(RocprimWarpScanTests, name_suffix, InclusiveScanCustomType)
 
     using base_type = typename TestFixture::params::type;
     using T = test_utils::custom_test_type<base_type>;
+    using acc_type = base_type;
+    if(std::is_same<acc_type, rocprim::bfloat16>::value)
+        GTEST_SKIP();
+    /* Enable the following when assignment operator has been added to hip_bfloat16
+     * https://github.com/ROCm-Developer-Tools/HIP/pull/2303/files
+     * using acc_type = typename std::conditional<std::is_same<base_type,rocprim::bfloat16>::value ||
+                                                   std::is_same<base_type,rocprim::half>::value, double, base_type>::type; */
+
     // logical warp side for warp primitive, execution warp size is always rocprim::warp_size()
     static constexpr size_t logical_warp_size = TestFixture::params::warp_size;
 
@@ -916,10 +959,12 @@ typed_test_def(RocprimWarpScanTests, name_suffix, InclusiveScanCustomType)
         // Calculate expected results on host
         for(size_t i = 0; i < input.size() / logical_warp_size; i++)
         {
+            test_utils::custom_test_type<acc_type> accumulator(acc_type(0));
             for(size_t j = 0; j < logical_warp_size; j++)
             {
                 auto idx = i * logical_warp_size + j;
-                expected[idx] = input[idx] + expected[j > 0 ? idx-1 : idx];
+                accumulator = static_cast<test_utils::custom_test_type<acc_type>>(input[idx]) + accumulator;
+                expected[idx] = static_cast<T>(accumulator);
             }
         }
 
@@ -955,7 +1000,7 @@ typed_test_def(RocprimWarpScanTests, name_suffix, InclusiveScanCustomType)
             );
         }
 
-        HIP_CHECK(hipPeekAtLastError());
+        HIP_CHECK(hipGetLastError());
         HIP_CHECK(hipDeviceSynchronize());
 
         // Read from device memory
@@ -968,7 +1013,7 @@ typed_test_def(RocprimWarpScanTests, name_suffix, InclusiveScanCustomType)
         );
 
         // Validating results
-        test_utils::assert_near(output, expected, test_utils::precision_threshold<T>::percentage);
+        test_utils::assert_near(output, expected, test_utils::precision_threshold<base_type>::percentage);
 
         HIP_CHECK(hipFree(device_input));
         HIP_CHECK(hipFree(device_output));

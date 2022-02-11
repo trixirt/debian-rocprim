@@ -157,17 +157,45 @@
 // NOTE: ShiftLess helper is needed, because partial specializations cannot refer to the free template args.
 //       See: https://stackoverflow.com/questions/2615905/c-template-nontype-parameter-arithmetic
 
-template<class Key, bool Descending, unsigned int StartBit, unsigned int EndBit, bool ShiftLess = (StartBit == 0 && EndBit == sizeof(Key) * 8)>
-struct key_comparator
+template<class T>
+constexpr auto is_floating_nan_host(const T& a)
+    -> typename std::enable_if<rocprim::is_floating_point<T>::value, bool>::type
 {
-    static_assert(rocprim::is_unsigned<Key>::value, "Test supports start and end bits only for unsigned integers");
+    return a != a;
+}
+
+template<class T>
+constexpr auto is_floating_nan_host(const T&)
+    -> typename std::enable_if<!rocprim::is_floating_point<T>::value, bool>::type
+{
+    return false;
+}
+
+template<class Key, bool Descending, unsigned int StartBit, unsigned int EndBit, bool ShiftLess = (StartBit == 0 && EndBit == sizeof(Key) * 8), class Enable = void>
+struct key_comparator {};
+
+template <class Key, bool Descending, unsigned int StartBit, unsigned int EndBit>
+struct key_comparator<Key, Descending, StartBit, EndBit, false, typename std::enable_if<rocprim::is_integral<Key>::value>::type>
+{
+    static constexpr Key radix_mask_upper  = (Key(1) << EndBit) - 1;
+    static constexpr Key radix_mask_bottom = (Key(1) << StartBit) - 1;
+    static constexpr Key radix_mask = radix_mask_upper ^ radix_mask_bottom;
 
     bool operator()(const Key& lhs, const Key& rhs)
     {
-        auto mask = (1ull << (EndBit - StartBit)) - 1;
-        auto l = (static_cast<unsigned long long>(lhs) >> StartBit) & mask;
-        auto r = (static_cast<unsigned long long>(rhs) >> StartBit) & mask;
+        Key l = lhs & radix_mask;
+        Key r = rhs & radix_mask;
         return Descending ? (r < l) : (l < r);
+    }
+};
+
+template <class Key, bool Descending, unsigned int StartBit, unsigned int EndBit>
+struct key_comparator<Key, Descending, StartBit, EndBit, false, typename std::enable_if<rocprim::is_floating_point<Key>::value>::type>
+{
+    // Floating-point types do not support StartBit and EndBit.
+    bool operator()(const Key&, const Key&)
+    {
+        return false;
     }
 };
 
@@ -176,7 +204,7 @@ struct key_comparator<Key, Descending, StartBit, EndBit, true>
 {
     bool operator()(const Key& lhs, const Key& rhs)
     {
-        return Descending ? (rhs < lhs) : (lhs < rhs);
+        return Descending ? ( is_floating_nan_host<Key>(lhs) || (rhs < lhs)) : ( is_floating_nan_host<Key>(rhs) || (lhs < rhs));
     }
 };
 

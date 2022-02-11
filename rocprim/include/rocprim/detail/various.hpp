@@ -159,7 +159,7 @@ struct match_fundamental_type
 };
 
 template<class T>
-ROCPRIM_DEVICE inline
+ROCPRIM_DEVICE ROCPRIM_INLINE
 auto store_volatile(T * output, T value)
     -> typename std::enable_if<std::is_fundamental<T>::value>::type
 {
@@ -173,7 +173,7 @@ auto store_volatile(T * output, T value)
 }
 
 template<class T>
-ROCPRIM_DEVICE inline
+ROCPRIM_DEVICE ROCPRIM_INLINE
 auto store_volatile(T * output, T value)
     -> typename std::enable_if<!std::is_fundamental<T>::value>::type
 {
@@ -191,7 +191,7 @@ auto store_volatile(T * output, T value)
 }
 
 template<class T>
-ROCPRIM_DEVICE inline
+ROCPRIM_DEVICE ROCPRIM_INLINE
 auto load_volatile(T * input)
     -> typename std::enable_if<std::is_fundamental<T>::value, T>::type
 {
@@ -206,7 +206,7 @@ auto load_volatile(T * input)
 }
 
 template<class T>
-ROCPRIM_DEVICE inline
+ROCPRIM_DEVICE ROCPRIM_INLINE
 auto load_volatile(T * input)
     -> typename std::enable_if<!std::is_fundamental<T>::value, T>::type
 {
@@ -256,6 +256,57 @@ bool are_iterators_equal(Iterator iter1, Iterator iter2)
 {
     return iter1 == iter2;
 }
+
+template<class...>
+using void_t = void;
+
+template<typename T>
+struct type_identity {
+    using type = T;
+};
+
+template<class T, class = void>
+struct extract_type_impl : type_identity<T> { };
+
+template<class T>
+struct extract_type_impl<T, void_t<typename T::type> > : extract_type_impl<typename T::type> { };
+
+template <typename T>
+using extract_type = typename extract_type_impl<T>::type;
+
+template<bool Value, class T>
+struct select_type_case
+{
+    static constexpr bool value = Value;
+    using type = T;
+};
+
+template<class Case, class... OtherCases>
+struct select_type_impl
+    : std::conditional<
+        Case::value,
+        type_identity<extract_type<typename Case::type>>,
+        select_type_impl<OtherCases...>
+    >::type { };
+
+template<class T>
+struct select_type_impl<select_type_case<true, T>> : type_identity<extract_type<T>> { };
+
+template<class T>
+struct select_type_impl<select_type_case<false, T>>
+{
+    static_assert(
+        sizeof(T) == 0,
+        "Cannot select any case. "
+        "The last case must have true condition or be a fallback type."
+    );
+};
+
+template<class Fallback>
+struct select_type_impl<Fallback> : type_identity<extract_type<Fallback>> { };
+
+template <typename... Cases>
+using select_type = typename select_type_impl<Cases...>::type;
 
 } // end namespace detail
 END_ROCPRIM_NAMESPACE
