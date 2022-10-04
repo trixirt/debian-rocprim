@@ -9,6 +9,14 @@ Maintainer: ROCm Team <debian-ai@lists.debian.org>
 Uploaders: Maxime Chambonnet <maxzor@maxzor.eu>,
 Build-Depends: debhelper-compat (= 13),
                cmake,
+               hipcc,
+               git,
+               libamd-comgr-dev,
+               libhsa-runtime-dev,
+               patchelf,
+               rocminfo,
+               rocm-cmake,
+               libgtest-dev <!nocheck>
 
 Package: librocprim2-dev
 Section: libdevel
