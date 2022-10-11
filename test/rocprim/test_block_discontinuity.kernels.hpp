@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright (c) 2017-2020 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -44,16 +44,15 @@ struct custom_flag_op2
 };
 
 // Host (CPU) implementaions of the wrapping function that allows to pass 3 args
-template<class T, class FlagOp>
-typename std::enable_if<rocprim::detail::with_b_index_arg<T, FlagOp>::value, bool>::type
-apply(FlagOp flag_op, const T& a, const T& b, unsigned int b_index)
+template <class T, class FlagOp>
+auto apply(FlagOp flag_op, const T& a, const T& b, unsigned int b_index)
+    -> decltype(flag_op(a, b, b_index))
 {
     return flag_op(a, b, b_index);
 }
 
 template<class T, class FlagOp>
-typename std::enable_if<!rocprim::detail::with_b_index_arg<T, FlagOp>::value, bool>::type
-apply(FlagOp flag_op, const T& a, const T& b, unsigned int)
+auto apply(FlagOp flag_op, const T& a, const T& b, unsigned int) -> decltype(flag_op(a, b))
 {
     return flag_op(a, b);
 }

@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2021 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -106,11 +106,15 @@ struct radix_digit_count_helper
         unsigned int digit_counts[warps_no][radix_size];
     };
 
-    template<bool IsFull = false, class KeysInputIterator>
+    template<
+        bool IsFull = false,
+        class KeysInputIterator,
+        class Offset
+    >
     ROCPRIM_DEVICE ROCPRIM_INLINE
     void count_digits(KeysInputIterator keys_input,
-                      unsigned int begin_offset,
-                      unsigned int end_offset,
+                      Offset begin_offset,
+                      Offset end_offset,
                       unsigned int bit,
                       unsigned int current_radix_bits,
                       storage_type& storage,
@@ -135,7 +139,7 @@ struct radix_digit_count_helper
         }
         ::rocprim::syncthreads();
 
-        for(unsigned int block_offset = begin_offset; block_offset < end_offset; block_offset += items_per_block)
+        for(Offset block_offset = begin_offset; block_offset < end_offset; block_offset += items_per_block)
         {
             key_type keys[ItemsPerThread];
             unsigned int valid_count;
@@ -300,7 +304,8 @@ template<
     unsigned int RadixBits,
     bool Descending,
     class Key,
-    class Value
+    class Value,
+    class Offset
 >
 struct radix_sort_and_scatter_helper
 {
@@ -340,7 +345,7 @@ struct radix_sort_and_scatter_helper
         unsigned short starts[radix_size];
         unsigned short ends[radix_size];
 
-        unsigned int digit_starts[radix_size];
+        Offset digit_starts[radix_size];
     };
 
     template<
@@ -355,11 +360,11 @@ struct radix_sort_and_scatter_helper
                           KeysOutputIterator keys_output,
                           ValuesInputIterator values_input,
                           ValuesOutputIterator values_output,
-                          unsigned int begin_offset,
-                          unsigned int end_offset,
+                          Offset begin_offset,
+                          Offset end_offset,
                           unsigned int bit,
                           unsigned int current_radix_bits,
-                          unsigned int digit_start, // i-th thread must pass i-th digit's value
+                          Offset digit_start, // i-th thread must pass i-th digit's value
                           storage_type& storage)
     {
         const unsigned int flat_id = ::rocprim::detail::block_thread_id<0>();
@@ -369,7 +374,7 @@ struct radix_sort_and_scatter_helper
             storage.digit_starts[flat_id] = digit_start;
         }
 
-        for(unsigned int block_offset = begin_offset; block_offset < end_offset; block_offset += items_per_block)
+        for(Offset block_offset = begin_offset; block_offset < end_offset; block_offset += items_per_block)
         {
             key_type keys[ItemsPerThread];
             value_type values[ItemsPerThread];
@@ -452,7 +457,7 @@ struct radix_sort_and_scatter_helper
                 const unsigned int pos = i * BlockSize + flat_id;
                 if(IsFull || (pos < valid_count))
                 {
-                    const unsigned int dst = pos - storage.starts[digit] + storage.digit_starts[digit];
+                    const Offset dst = pos - storage.starts[digit] + storage.digit_starts[digit];
                     keys_output[dst] = key_codec::decode(bit_keys[i]);
                     if(with_values)
                     {
@@ -483,12 +488,13 @@ template<
     unsigned int ItemsPerThread,
     unsigned int RadixBits,
     bool Descending,
-    class KeysInputIterator
+    class KeysInputIterator,
+    class Offset
 >
 ROCPRIM_DEVICE ROCPRIM_FORCE_INLINE
 void fill_digit_counts(KeysInputIterator keys_input,
-                       unsigned int size,
-                       unsigned int * batch_digit_counts,
+                       Offset size,
+                       Offset * batch_digit_counts,
                        unsigned int bit,
                        unsigned int current_radix_bits,
                        unsigned int blocks_per_full_batch,
@@ -504,7 +510,7 @@ void fill_digit_counts(KeysInputIterator keys_input,
     const unsigned int flat_id = ::rocprim::detail::block_thread_id<0>();
     const unsigned int batch_id = ::rocprim::detail::block_id<0>();
 
-    unsigned int block_offset;
+    Offset block_offset;
     unsigned int blocks_per_batch;
     if(batch_id < full_batches)
     {
@@ -549,28 +555,29 @@ void fill_digit_counts(KeysInputIterator keys_input,
 template<
     unsigned int BlockSize,
     unsigned int ItemsPerThread,
-    unsigned int RadixBits
+    unsigned int RadixBits,
+    class Offset
 >
 ROCPRIM_DEVICE ROCPRIM_FORCE_INLINE
-void scan_batches(unsigned int * batch_digit_counts,
-                  unsigned int * digit_counts,
+void scan_batches(Offset * batch_digit_counts,
+                  Offset * digit_counts,
                   unsigned int batches)
 {
     constexpr unsigned int radix_size = 1 << RadixBits;
 
-    using scan_type = typename ::rocprim::block_scan<unsigned int, BlockSize>;
+    using scan_type = typename ::rocprim::block_scan<Offset, BlockSize>;
 
     const unsigned int digit = ::rocprim::detail::block_id<0>();
     const unsigned int flat_id = ::rocprim::detail::block_thread_id<0>();
 
-    unsigned int values[ItemsPerThread];
+    Offset values[ItemsPerThread];
     for(unsigned int i = 0; i < ItemsPerThread; i++)
     {
         const unsigned int batch_id = flat_id * ItemsPerThread + i;
         values[i] = (batch_id < batches ? batch_digit_counts[batch_id * radix_size + digit] : 0);
     }
 
-    unsigned int digit_count;
+    Offset digit_count;
     scan_type().exclusive_scan(values, values, 0, digit_count);
 
     for(unsigned int i = 0; i < ItemsPerThread; i++)
@@ -588,17 +595,20 @@ void scan_batches(unsigned int * batch_digit_counts,
     }
 }
 
-template<unsigned int RadixBits>
+template<
+    unsigned int RadixBits,
+    class Offset
+>
 ROCPRIM_DEVICE ROCPRIM_FORCE_INLINE
-void scan_digits(unsigned int * digit_counts)
+void scan_digits(Offset * digit_counts)
 {
     constexpr unsigned int radix_size = 1 << RadixBits;
 
-    using scan_type = typename ::rocprim::block_scan<unsigned int, radix_size>;
+    using scan_type = typename ::rocprim::block_scan<Offset, radix_size>;
 
     const unsigned int flat_id = ::rocprim::detail::block_thread_id<0>();
 
-    unsigned int value = digit_counts[flat_id];
+    Offset value = digit_counts[flat_id];
     scan_type().exclusive_scan(value, value, 0);
     digit_counts[flat_id] = value;
 }
@@ -646,16 +656,17 @@ template<
     class KeysInputIterator,
     class KeysOutputIterator,
     class ValuesInputIterator,
-    class ValuesOutputIterator
+    class ValuesOutputIterator,
+    class Offset
 >
 ROCPRIM_DEVICE ROCPRIM_FORCE_INLINE
 void sort_and_scatter(KeysInputIterator keys_input,
                       KeysOutputIterator keys_output,
                       ValuesInputIterator values_input,
                       ValuesOutputIterator values_output,
-                      unsigned int size,
-                      const unsigned int * batch_digit_starts,
-                      const unsigned int * digit_starts,
+                      Offset size,
+                      const Offset * batch_digit_starts,
+                      const Offset * digit_starts,
                       unsigned int bit,
                       unsigned int current_radix_bits,
                       unsigned int blocks_per_full_batch,
@@ -669,7 +680,7 @@ void sort_and_scatter(KeysInputIterator keys_input,
 
     using sort_and_scatter_helper = radix_sort_and_scatter_helper<
         BlockSize, ItemsPerThread, RadixBits, Descending,
-        key_type, value_type
+        key_type, value_type, Offset
     >;
 
     ROCPRIM_SHARED_MEMORY typename sort_and_scatter_helper::storage_type storage;
@@ -677,7 +688,7 @@ void sort_and_scatter(KeysInputIterator keys_input,
     const unsigned int flat_id = ::rocprim::detail::block_thread_id<0>();
     const unsigned int batch_id = ::rocprim::detail::block_id<0>();
 
-    unsigned int block_offset;
+    Offset block_offset;
     unsigned int blocks_per_batch;
     if(batch_id < full_batches)
     {
@@ -691,7 +702,7 @@ void sort_and_scatter(KeysInputIterator keys_input,
     }
     block_offset *= items_per_block;
 
-    unsigned int digit_start = 0;
+    Offset digit_start = 0;
     if(flat_id < radix_size)
     {
         digit_start = digit_starts[flat_id] + batch_digit_starts[batch_id * radix_size + flat_id];
@@ -813,18 +824,36 @@ block_load_radix_impl(const unsigned int flat_id,
 
 template<class T>
 ROCPRIM_DEVICE ROCPRIM_INLINE
-auto compare_nans(const T& a, const T& b)
+auto compare_nan_sensitive(const T& a, const T& b)
     -> typename std::enable_if<rocprim::is_floating_point<T>::value, bool>::type
 {
-    return (a != a) && (b == b);
+    // Beware: the performance of this function is extremely vulnerable to refactoring.
+    // Always check benchmark_device_segmented_radix_sort and benchmark_device_radix_sort
+    // when making changes to this function.
+
+    using bit_key_type = typename float_bit_mask<T>::bit_type;
+    static constexpr auto sign_bit = float_bit_mask<T>::sign_bit;
+    
+    auto a_bits = __builtin_bit_cast(bit_key_type, a);
+    auto b_bits = __builtin_bit_cast(bit_key_type, b);
+
+    // convert -0.0 to +0.0
+    a_bits = a_bits == sign_bit ? 0 : a_bits;
+    b_bits = b_bits == sign_bit ? 0 : b_bits;
+    // invert negatives, put 1 into sign bit for positives 
+    a_bits ^= (sign_bit & a_bits) == 0 ? sign_bit : bit_key_type(-1);
+    b_bits ^= (sign_bit & b_bits) == 0 ? sign_bit : bit_key_type(-1);
+
+    // sort numbers and NaNs according to their bit representation
+    return a_bits > b_bits;
 }
 
 template<class T>
 ROCPRIM_DEVICE ROCPRIM_INLINE
-auto compare_nans(const T&, const T&)
+auto compare_nan_sensitive(const T& a, const T& b)
     -> typename std::enable_if<!rocprim::is_floating_point<T>::value, bool>::type
 {
-    return false;
+    return a > b;
 }
 
 template<
@@ -841,7 +870,7 @@ struct radix_merge_compare<false, false, T>
     ROCPRIM_DEVICE ROCPRIM_INLINE
     bool operator()(const T& a, const T& b) const
     {
-        return compare_nans<T>(b, a) || b > a;
+        return compare_nan_sensitive<T>(b, a);
     }
 };
 
@@ -851,7 +880,7 @@ struct radix_merge_compare<true, false, T>
     ROCPRIM_DEVICE ROCPRIM_INLINE
     bool operator()(const T& a, const T& b) const
     {
-        return compare_nans<T>(a, b) || a > b;
+        return compare_nan_sensitive<T>(a, b);
     }
 };
 
@@ -860,6 +889,7 @@ struct radix_merge_compare<false, true, T, typename std::enable_if<rocprim::is_i
 {
     T radix_mask;
 
+    ROCPRIM_HOST_DEVICE ROCPRIM_INLINE
     radix_merge_compare(const unsigned int start_bit, const unsigned int current_radix_bits)
     {
         T radix_mask_upper  = (T(1) << (current_radix_bits + start_bit)) - 1;
@@ -881,6 +911,7 @@ struct radix_merge_compare<true, true, T, typename std::enable_if<rocprim::is_in
 {
     T radix_mask;
 
+    ROCPRIM_HOST_DEVICE ROCPRIM_INLINE
     radix_merge_compare(const unsigned int start_bit, const unsigned int current_radix_bits)
     {
         T radix_mask_upper  = (T(1) << (current_radix_bits + start_bit)) - 1;
@@ -898,89 +929,19 @@ struct radix_merge_compare<true, true, T, typename std::enable_if<rocprim::is_in
 };
 
 template<bool Descending, class T>
-struct radix_merge_compare<Descending, true, T, typename std::enable_if<rocprim::is_floating_point<T>::value>::type>
+struct radix_merge_compare<Descending,
+                           true,
+                           T,
+                           typename std::enable_if<!rocprim::is_integral<T>::value>::type>
 {
     // radix_merge_compare supports masks only for integrals.
     // even though masks are never used for floating point-types,
     // it needs to be able to compile.
+    ROCPRIM_HOST_DEVICE ROCPRIM_INLINE
     radix_merge_compare(const unsigned int, const unsigned int){}
 
     ROCPRIM_DEVICE ROCPRIM_INLINE
     bool operator()(const T&, const T&) const { return false; }
-};
-
-template<>
-struct radix_merge_compare<false, false, rocprim::half>
-{
-    ROCPRIM_DEVICE ROCPRIM_INLINE
-    bool operator()(const rocprim::half& a, const rocprim::half& b) const
-    {
-        return (__hisnan(b) && !__hisnan(a)) || __hgt(b, a);
-    }
-};
-
-template<>
-struct radix_merge_compare<true, false, rocprim::half>
-{
-    ROCPRIM_DEVICE ROCPRIM_INLINE
-    bool operator()(const rocprim::half& a, const rocprim::half& b) const
-    {
-        return (!__hisnan(b) && __hisnan(a)) || __hgt(a, b);
-    }
-};
-
-template<>
-struct radix_merge_compare<false, true, rocprim::half>
-{
-    using key_codec = radix_key_codec<rocprim::half, true>;
-    using bit_key_type = typename key_codec::bit_key_type;
-
-    unsigned int bit, length;
-
-    radix_merge_compare(const unsigned int bit, const unsigned int current_radix_bits)
-    {
-        this->bit = bit;
-        this->length = current_radix_bits;
-    }
-
-    ROCPRIM_DEVICE ROCPRIM_INLINE
-    bool operator()(const rocprim::half& a, const rocprim::half& b) const
-    {
-        const bit_key_type encoded_key_a = key_codec::encode(a);
-        const bit_key_type masked_key_a  = key_codec::extract_digit(encoded_key_a, bit, length);
-
-        const bit_key_type encoded_key_b = key_codec::encode(b);
-        const bit_key_type masked_key_b  = key_codec::extract_digit(encoded_key_b, bit, length);
-
-        return __hgt(key_codec::decode(masked_key_b), key_codec::decode(masked_key_a));
-    }
-};
-
-template<>
-struct radix_merge_compare<true, true, rocprim::half>
-{
-    using key_codec = radix_key_codec<rocprim::half, true>;
-    using bit_key_type = typename key_codec::bit_key_type;
-
-    unsigned int bit, length;
-
-    radix_merge_compare(const unsigned int bit, const unsigned int current_radix_bits)
-    {
-        this->bit = bit;
-        this->length = current_radix_bits;
-    }
-
-    ROCPRIM_DEVICE ROCPRIM_INLINE
-    bool operator()(const rocprim::half& a, const rocprim::half& b) const
-    {
-        const bit_key_type encoded_key_a = key_codec::encode(a);
-        const bit_key_type masked_key_a  = key_codec::extract_digit(encoded_key_a, bit, length);
-
-        const bit_key_type encoded_key_b = key_codec::encode(b);
-        const bit_key_type masked_key_b  = key_codec::extract_digit(encoded_key_b, bit, length);
-
-        return __hgt(key_codec::decode(masked_key_a), key_codec::decode(masked_key_b));
-    }
 };
 
 template<

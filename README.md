@@ -9,6 +9,7 @@ performant GPU-accelerated code on AMD ROCm platform.
 * CMake (3.16 or later)
 * AMD [ROCm](https://rocm.github.io/install.html) platform (1.8.2 or later)
   * Including [HIP-clang](https://github.com/ROCm-Developer-Tools/HIP/blob/master/INSTALL.md#hip-clang) compiler
+* C++14
 * Python 3.6 or higher (HIP on Windows only, required only for install script)
 * Visual Studio 2019 with clang support (HIP on Windows only)
 * Strawberry Perl (HIP on Windows only)
@@ -32,7 +33,6 @@ cd rocPRIM; mkdir build; cd build
 
 # Configure rocPRIM, setup options for your system.
 # Build options:
-#   DISABLE_WERROR - ON by default, This flag disable the -Werror compiler flag
 #   ONLY_INSTALL - OFF by default, If this flag is on, the build ignore the BUILD_* flags
 #   BUILD_TEST - OFF by default,
 #   BUILD_EXAMPLE - OFF by default,

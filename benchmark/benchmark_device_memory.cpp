@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright (c) 2018-2019 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2018-2022 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -493,13 +493,9 @@ int main(int argc, char *argv[])
 
     // HIP
     hipStream_t stream = 0; // default
-    hipDeviceProp_t devProp;
-    int device_id = 0;
-    HIP_CHECK(hipGetDevice(&device_id));
-    HIP_CHECK(hipGetDeviceProperties(&devProp, device_id));
-    std::cout << "Device name: " << devProp.name << std::endl;
-    std::cout << "L2 Cache size: " << devProp.l2CacheSize << std::endl;
-    std::cout << "Shared memory per block: " << devProp.sharedMemPerBlock << std::endl;
+
+    // Benchmark info
+    add_common_benchmark_info();
 
     // Add benchmarks
     std::vector<benchmark::internal::Benchmark*> benchmarks =

@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright (c) 2017-2020 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -30,7 +30,7 @@
 
 // required test headers
 #include "test_utils_types.hpp"
-#include "test_sort_comparator.hpp"
+#include "test_utils_sort_comparator.hpp"
 
 // kernel definitions
 #include "test_block_radix_sort.kernels.hpp"
