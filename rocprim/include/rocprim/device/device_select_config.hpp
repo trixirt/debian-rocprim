@@ -40,15 +40,19 @@ BEGIN_ROCPRIM_NAMESPACE
 ///
 /// \tparam BlockSize - number of threads in a block.
 /// \tparam ItemsPerThread - number of items processed by each thread.
+/// \tparam KeyBlockLoadMethod - method for loading input keys.
 /// \tparam ValueBlockLoadMethod - method for loading input values.
 /// \tparam FlagBlockLoadMethod - method for loading flag values.
 /// \tparam BlockScanMethod - algorithm for block scan.
+/// \tparam SizeLimit - limit on the number of items for a single select kernel launch.
 template<
     unsigned int BlockSize,
     unsigned int ItemsPerThread,
+    ::rocprim::block_load_method KeyBlockLoadMethod,
     ::rocprim::block_load_method ValueBlockLoadMethod,
     ::rocprim::block_load_method FlagBlockLoadMethod,
-    ::rocprim::block_scan_algorithm BlockScanMethod
+    ::rocprim::block_scan_algorithm BlockScanMethod,
+    unsigned int SizeLimit = ROCPRIM_GRID_SIZE_LIMIT
 >
 struct select_config
 {
@@ -56,41 +60,47 @@ struct select_config
     static constexpr unsigned int block_size = BlockSize;
     /// \brief Number of items processed by each thread.
     static constexpr unsigned int items_per_thread = ItemsPerThread;
+    /// \brief Method for loading input keys.
+    static constexpr block_load_method key_block_load_method = KeyBlockLoadMethod;
     /// \brief Method for loading input values.
     static constexpr block_load_method value_block_load_method = ValueBlockLoadMethod;
     /// \brief Method for loading flag values.
     static constexpr block_load_method flag_block_load_method = FlagBlockLoadMethod;
     /// \brief Algorithm for block scan.
     static constexpr block_scan_algorithm block_scan_method = BlockScanMethod;
+    /// \brief Limit on the number of items for a single select kernel launch.
+    static constexpr unsigned int size_limit = SizeLimit;
 };
 
 namespace detail
 {
 
-template<class Value>
+template<class Key>
 struct select_config_803
 {
     static constexpr unsigned int item_scale =
-        ::rocprim::detail::ceiling_div<unsigned int>(sizeof(Value), sizeof(int));
+        ::rocprim::detail::ceiling_div<unsigned int>(sizeof(Key), sizeof(int));
 
     using type = select_config<
-        limit_block_size<256U, sizeof(Value), ROCPRIM_WARP_SIZE_64>::value,
+        limit_block_size<256U, sizeof(Key), ROCPRIM_WARP_SIZE_64>::value,
         ::rocprim::max(1u, 13u / item_scale),
+        ::rocprim::block_load_method::block_load_transpose,
         ::rocprim::block_load_method::block_load_transpose,
         ::rocprim::block_load_method::block_load_transpose,
         ::rocprim::block_scan_algorithm::using_warp_scan
     >;
 };
 
-template<class Value>
+template<class Key>
 struct select_config_900
 {
     static constexpr unsigned int item_scale =
-        ::rocprim::detail::ceiling_div<unsigned int>(sizeof(Value), sizeof(int));
+        ::rocprim::detail::ceiling_div<unsigned int>(sizeof(Key), sizeof(int));
 
     using type = select_config<
-        limit_block_size<256U, sizeof(Value), ROCPRIM_WARP_SIZE_64>::value,
+        limit_block_size<256U, sizeof(Key), ROCPRIM_WARP_SIZE_64>::value,
         ::rocprim::max(1u, 15u / item_scale),
+        ::rocprim::block_load_method::block_load_transpose,
         ::rocprim::block_load_method::block_load_transpose,
         ::rocprim::block_load_method::block_load_transpose,
         ::rocprim::block_scan_algorithm::using_warp_scan
@@ -108,6 +118,7 @@ struct select_config_90a
         ::rocprim::max(1u, 15u / item_scale),
         ::rocprim::block_load_method::block_load_transpose,
         ::rocprim::block_load_method::block_load_transpose,
+        ::rocprim::block_load_method::block_load_transpose,
         ::rocprim::block_scan_algorithm::using_warp_scan
     >;
 };
@@ -123,20 +134,21 @@ struct select_config_1030
         ::rocprim::max(1u, 15u / item_scale),
         ::rocprim::block_load_method::block_load_transpose,
         ::rocprim::block_load_method::block_load_transpose,
+        ::rocprim::block_load_method::block_load_transpose,
         ::rocprim::block_scan_algorithm::using_warp_scan
     >;
 };
 
 
-template<unsigned int TargetArch, class Value>
+template<unsigned int TargetArch, class Key, class /*Value*/>
 struct default_select_config
     : select_arch<
         TargetArch,
-        select_arch_case<803, select_config_803<Value>>,
-        select_arch_case<900, select_config_900<Value>>,
-        select_arch_case<ROCPRIM_ARCH_90a, select_config_90a<Value>>,
-        select_arch_case<1030, select_config_1030<Value>>,
-        select_config_803<Value>
+        select_arch_case<803, select_config_803<Key>>,
+        select_arch_case<900, select_config_900<Key>>,
+        select_arch_case<ROCPRIM_ARCH_90a, select_config_90a<Key>>,
+        select_arch_case<1030, select_config_1030<Key>>,
+        select_config_803<Key>
     > { };
 
 } // end namespace detail

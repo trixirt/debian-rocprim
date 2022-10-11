@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2017-2019 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -29,6 +29,15 @@ configure_file(
   @ONLY
 )
 
+if (BUILD_FILE_REORG_BACKWARD_COMPATIBILITY)
+  rocm_wrap_header_file(
+    "rocprim_version.hpp"
+    WRAPPER_LOCATIONS rocprim/include/rocprim
+    OUTPUT_LOCATIONS rocprim/wrapper/include/rocprim
+    ORIGINAL_FILES ${CMAKE_CURRENT_BINARY_DIR}/include/rocprim/rocprim_version.hpp
+  )
+endif( )
+
 # Only header target, does not include dependencies
 add_library(rocprim INTERFACE)
 target_include_directories(rocprim
@@ -36,7 +45,7 @@ target_include_directories(rocprim
     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/include/rocprim>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:rocprim/include/>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/>
 )
 
 # This target links against HIP library
@@ -46,34 +55,34 @@ target_link_libraries(rocprim_hip INTERFACE rocprim hip::device)
 
 # Installation
 
-include(GNUInstallDirs)
-set(INCLUDE_INSTALL_DIR ${CMAKE_INSTALL_INCLUDEDIR})
-
 # We need to install headers manually as rocm_install_targets
 # does not support header-only libraries (INTERFACE targets)
 rocm_install_targets(
   TARGETS rocprim rocprim_hip
-  PREFIX rocprim
 )
 
 rocm_install(
   DIRECTORY
     "include/"
     "${PROJECT_BINARY_DIR}/rocprim/include/"
-  DESTINATION rocprim/include/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/
   FILES_MATCHING
   PATTERN "*.h"
   PATTERN "*.hpp"
   PERMISSIONS OWNER_WRITE OWNER_READ GROUP_READ WORLD_READ
 )
 
+
+if (BUILD_FILE_REORG_BACKWARD_COMPATIBILITY)
+rocm_install(
+    DIRECTORY
+       "${PROJECT_BINARY_DIR}/rocprim/wrapper/"
+        DESTINATION rocprim/ )
+endif()
+
 # Export targets
 rocm_export_targets(
   TARGETS roc::rocprim roc::rocprim_hip
-  PREFIX rocprim
   DEPENDS PACKAGE hip
   NAMESPACE roc::
 )
-
-# Create symlinks
-rocm_install_symlink_subdir(rocprim)

@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -49,6 +49,7 @@
 #include "block/block_sort.hpp"
 #include "block/block_store.hpp"
 
+#include "device/device_adjacent_difference.hpp"
 #include "device/device_binary_search.hpp"
 #include "device/device_histogram.hpp"
 #include "device/device_merge.hpp"

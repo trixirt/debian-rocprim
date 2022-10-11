@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -500,7 +500,7 @@ public:
               storage_type& storage, BinaryFunction compare_function)
     {
         (void) storage;
-        sort(compare_function, thread_keys, thread_values);
+        sort(thread_keys, thread_values, compare_function);
     }
 };
 

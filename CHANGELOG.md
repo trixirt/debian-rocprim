@@ -2,6 +2,47 @@
 
 Full documentation for rocPRIM is available at [https://codedocs.xyz/ROCmSoftwarePlatform/rocPRIM/](https://codedocs.xyz/ROCmSoftwarePlatform/rocPRIM/)
 
+## [rocPRIM-2.11.0 for ROCm 5.3.0]
+### Added
+- New functions `subtract_left` and `subtract_right` in `block_adjacent_difference` to apply functions
+  on pairs of adjacent items distributed between threads in a block.
+- New device level `adjacent_difference` primitives.
+- Added experimental tooling for automatic kernel configuration tuning for various architectures
+- Benchmarks collect and output more detailed system information
+- CMake functionality to improve build parallelism of the test suite that splits compilation units by
+function or by parameters.
+- Reverse iterator.
+## Changed
+- Improved the performance of warp primitives using the swizzle operation on Navi
+- Improved build parallelism of the test suite by splitting up large compilation units
+- `device_select` now supports problem sizes larger than 2^32 items
+- `device_segmented_radix_sort` now partitions segments to groups small, medium and large segments.
+  Each segment group can be sorted by specialized kernels to improve throughput.
+
+## [rocPRIM-2.10.14 for ROCm 5.2.0]
+### Added
+- Packages for tests and benchmark executable on all supported OSes using CPack.
+- Added File/Folder Reorg Changes and Enabled Backward compatibility support using wrapper headers.
+
+## [rocPRIM-2.10.13 for ROCm 5.1.0]
+### Fixed
+- Fixed radix sort int64_t bug introduced in [2.10.11]
+### Added
+- Future value
+- Added device partition_three_way to partition input to three output iterators based on two predicates
+### Changed
+- The reduce/scan algorithm precision issues in the tests has been resolved for half types.
+- The device radix sort algorithm supports indexing with 64 bit unsigned integers.
+  - The indexer type is chosen based on the type argument of parameter `size`.
+  - If `sizeof(size)` is not larger than 4 bytes, the indexer type is 32 bit unsigned int,
+  - Else the indexer type is 64 bit unsigned int.
+  - The maximum problem size is based on the compile time configuration of the algorithm according to the following formula:
+    - `max_problem_size = (UINT_MAX + 1) * config::scan::block_size * config::scan::items_per_thread`.
+- The flags API of `block_adjacent_difference` is now deprecated and will be removed in a future
+  version.
+### Known issues
+- device_segmented_radix_sort unit test failing for HIP on Windows
+
 ## [rocPRIM-2.10.12 for ROCm 5.0.0]
 ### Fixed
 - Enable bfloat16 tests and reduce threshold for bfloat16

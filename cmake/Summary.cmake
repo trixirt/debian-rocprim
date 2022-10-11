@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2017-2020 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -25,9 +25,6 @@ function(print_configuration_summary)
   message(STATUS "******** Summary ********")
   message(STATUS "General:")
   message(STATUS "  System                : ${CMAKE_SYSTEM_NAME}")
-  if(NOT USE_HIP_CPU)
-    message(STATUS "  HIP ROOT              : ${HIP_ROOT_DIR}")
-  endif()
   message(STATUS "  C++ compiler          : ${CMAKE_CXX_COMPILER}")
   message(STATUS "  C++ compiler version  : ${CMAKE_CXX_COMPILER_VERSION}")
   string(STRIP "${CMAKE_CXX_FLAGS}" CMAKE_CXX_FLAGS_STRIP)
@@ -35,14 +32,12 @@ function(print_configuration_summary)
   message(STATUS "  Build type            : ${CMAKE_BUILD_TYPE}")
   message(STATUS "  Install prefix        : ${CMAKE_INSTALL_PREFIX}")
   if(NOT USE_HIP_CPU)
-    message(STATUS "  Device targets        : ${AMDGPU_TARGETS}")
+    message(STATUS "  Device targets        : ${GPU_TARGETS}")
   endif()
   message(STATUS "")
-  message(STATUS "  DISABLE_WERROR            : ${DISABLE_WERROR}")
   message(STATUS "  ONLY_INSTALL              : ${ONLY_INSTALL}")
   message(STATUS "  BUILD_TEST                : ${BUILD_TEST}")
   message(STATUS "  BUILD_BENCHMARK           : ${BUILD_BENCHMARK}")
   message(STATUS "  BUILD_EXAMPLE             : ${BUILD_EXAMPLE}")
-  message(STATUS "  BUILD_ADDRESS_SANITIZER   : ${BUILD_ADDRESS_SANITIZER}")
   message(STATUS "  USE_HIP_CPU               : ${USE_HIP_CPU}")
 endfunction()

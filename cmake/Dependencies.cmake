@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2017-2019 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -29,19 +29,6 @@
 
 # For downloading, building, and installing required dependencies
 include(cmake/DownloadProject.cmake)
-
-# Never update automatically from the remote repository
-if(CMAKE_VERSION VERSION_LESS 3.2)
-  set(UPDATE_DISCONNECTED_IF_AVAILABLE "")
-else()
-  set(UPDATE_DISCONNECTED_IF_AVAILABLE "UPDATE_DISCONNECTED TRUE")
-endif()
-
-# GIT
-find_package(Git REQUIRED)
-if (NOT Git_FOUND)
-  message(FATAL_ERROR "Please ensure Git is installed on the system")
-endif()
 
 if(USE_HIP_CPU)
   find_package(Threads REQUIRED)
@@ -156,7 +143,7 @@ if(BUILD_BENCHMARK)
       message(FATAL_ERROR "DownloadProject.cmake doesn't support multi-configuration generators.")
     endif()
     set(GOOGLEBENCHMARK_ROOT ${CMAKE_CURRENT_BINARY_DIR}/deps/googlebenchmark CACHE PATH "")
-    if(CMAKE_CXX_COMPILER MATCHES ".*/hipcc$")
+    if(NOT (CMAKE_CXX_COMPILER_ID STREQUAL "GNU"))
       # hip-clang cannot compile googlebenchmark for some reason
       set(COMPILER_OVERRIDE "-DCMAKE_CXX_COMPILER=g++")
     endif()
@@ -164,15 +151,15 @@ if(BUILD_BENCHMARK)
     download_project(
       PROJ           googlebenchmark
       GIT_REPOSITORY https://github.com/google/benchmark.git
-      GIT_TAG        v1.4.0
+      GIT_TAG        v1.6.1
       INSTALL_DIR    ${GOOGLEBENCHMARK_ROOT}
-      CMAKE_ARGS     -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS} -DBENCHMARK_ENABLE_TESTING=OFF -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR> ${COMPILER_OVERRIDE}
+      CMAKE_ARGS     -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS} -DBENCHMARK_ENABLE_TESTING=OFF -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR> -DCMAKE_CXX_STANDARD=14 ${COMPILER_OVERRIDE}
       LOG_DOWNLOAD   TRUE
       LOG_CONFIGURE  TRUE
       LOG_BUILD      TRUE
       LOG_INSTALL    TRUE
       BUILD_PROJECT  TRUE
-      ${UPDATE_DISCONNECTED_IF_AVAILABLE}
+      UPDATE_DISCONNECTED TRUE
     )
   endif()
   find_package(benchmark REQUIRED CONFIG PATHS ${GOOGLEBENCHMARK_ROOT})
@@ -186,7 +173,7 @@ if(NOT ROCM_PATH)
   set(ROCM_PATH /opt/rocm)
 endif()
 
-find_package(ROCM 0.6 CONFIG QUIET PATHS ${ROCM_PATH} /opt/rocm)
+find_package(ROCM 0.7.3 CONFIG QUIET PATHS ${ROCM_PATH} /opt/rocm)
 if(NOT ROCM_FOUND)
   set(rocm_cmake_tag "master" CACHE STRING "rocm-cmake tag to download")
   set(rocm_cmake_url "https://github.com/RadeonOpenCompute/rocm-cmake/archive/${rocm_cmake_tag}.zip")
@@ -213,7 +200,7 @@ if(NOT ROCM_FOUND)
   execute_process( COMMAND ${CMAKE_COMMAND} --build rocm-cmake-${rocm_cmake_tag} --target install
     WORKING_DIRECTORY ${PROJECT_EXTERN_DIR})
 
-  find_package( ROCM 0.6 REQUIRED CONFIG PATHS ${PROJECT_EXTERN_DIR}/rocm-cmake )
+  find_package( ROCM 0.7.3 REQUIRED CONFIG PATHS ${PROJECT_EXTERN_DIR}/rocm-cmake )
 endif()
 
 include(ROCMSetupVersion)
@@ -221,4 +208,6 @@ include(ROCMCreatePackage)
 include(ROCMInstallTargets)
 include(ROCMPackageConfigHelpers)
 include(ROCMInstallSymlinks)
-include(ROCMCheckTargetIds OPTIONAL)
+include(ROCMHeaderWrapper)
+include(ROCMCheckTargetIds)
+include(ROCMClients)

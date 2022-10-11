@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2021 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -32,8 +32,9 @@
 
 #include "device_scan_config.hpp"
 #include "device_transform.hpp"
-#include "detail/device_scan_reduce_then_scan.hpp"
+#include "detail/device_scan_common.hpp"
 #include "detail/device_scan_lookback.hpp"
+#include "detail/device_scan_reduce_then_scan.hpp"
 
 BEGIN_ROCPRIM_NAMESPACE
 
@@ -146,18 +147,6 @@ void lookback_scan_kernel(InputIterator input,
         lookback_scan_state, number_of_blocks, ordered_bid,
         previous_last_element, new_last_element,
         override_first_value, save_last_value
-    );
-}
-
-template<class LookBackScanState>
-ROCPRIM_KERNEL
-__launch_bounds__(ROCPRIM_DEFAULT_MAX_BLOCK_SIZE)
-void init_lookback_scan_state_kernel(LookBackScanState lookback_scan_state,
-                                     const unsigned int number_of_blocks,
-                                     ordered_block_id<unsigned int> ordered_bid)
-{
-    init_lookback_scan_state_kernel_impl(
-        lookback_scan_state, number_of_blocks, ordered_bid
     );
 }
 
@@ -616,6 +605,8 @@ auto scan_impl(void * temporary_storage,
 /// * Returns the required size of \p temporary_storage in \p storage_size
 /// if \p temporary_storage in a null pointer.
 /// * Ranges specified by \p input and \p output must have at least \p size elements.
+/// * By default, the input type is used for accumulation. A custom type
+/// can be specified using <tt>rocprim::transform_iterator</tt>, see the example below.
 ///
 /// \tparam Config - [optional] configuration of the primitive. It can be \p scan_config or
 /// a custom class with the same members.
@@ -677,7 +668,37 @@ auto scan_impl(void * temporary_storage,
 /// );
 /// // output: [1, 3, 6, 10, 15, 21, 28, 36]
 /// \endcode
+///
+/// The same example as above, but now a custom accumulator type is specified.
+///
+/// \code{.cpp}
+/// #include <rocprim/rocprim.hpp>
+///
+/// size_t input_size;
+/// short * input;
+/// int * output;
+///
+/// // Use a transform iterator to specifiy a custom accumulator type
+/// auto input_iterator = rocprim::make_transform_iterator(
+///     input, [] __device__ (T in) { return static_cast<int>(in); });
+///
+/// size_t temporary_storage_size_bytes;
+/// void * temporary_storage_ptr = nullptr;
+/// // Use the transform iterator
+/// rocprim::inclusive_scan(
+///     temporary_storage_ptr, temporary_storage_size_bytes,
+///     input_iterator, output, input_size, rocprim::plus<int>()
+/// );
+///
+/// hipMalloc(&temporary_storage_ptr, temporary_storage_size_bytes);
+///
+/// rocprim::inclusive_scan(
+///     temporary_storage_ptr, temporary_storage_size_bytes,
+///     input_iterator, output, input_size, rocprim::plus<int>()
+/// );
+/// \endcode
 /// \endparblock
+
 template<
     class Config = default_config,
     class InputIterator,

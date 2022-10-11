@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2017-2020 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -21,6 +21,8 @@
 # SOFTWARE.
 
 option(BENCHMARK_CONFIG_TUNING "Benchmark device-level functions using various configs" OFF)
+include(../cmake/ConfigAutotune.cmake)
+include(ConfigAutotuneSettings.cmake)
 
 function(add_rocprim_benchmark BENCHMARK_SOURCE)
   get_filename_component(BENCHMARK_TARGET ${BENCHMARK_SOURCE} NAME_WE)
@@ -64,7 +66,20 @@ function(add_rocprim_benchmark BENCHMARK_SOURCE)
   )
   if(BENCHMARK_CONFIG_TUNING)
     target_compile_definitions(${BENCHMARK_TARGET} PRIVATE BENCHMARK_CONFIG_TUNING)
+
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${BENCHMARK_TARGET}.parallel.cpp.in")
+      message(STATUS "found ${BENCHMARK_TARGET}.parallel.cpp.in file, compiling in parallel.")
+      read_config_autotune_settings(${BENCHMARK_TARGET} list_across_names list_across output_pattern_suffix)
+      add_matrix(TARGET ${BENCHMARK_TARGET}
+              SHARDS 1
+              CURRENT_SHARD 0
+              INPUT "${BENCHMARK_TARGET}.parallel.cpp.in"
+              OUTPUT_PATTERN "${BENCHMARK_TARGET}_${output_pattern_suffix}"
+              NAMES ${list_across_names}
+              LISTS ${list_across})
+    endif()
   endif()
+  rocm_install(TARGETS ${BENCHMARK_TARGET} COMPONENT benchmarks)
   if (WIN32 AND NOT DEFINED DLLS_COPIED)
     set(DLLS_COPIED "YES")
     set(DLLS_COPIED ${DLLS_COPIED} PARENT_SCOPE)
@@ -85,6 +100,7 @@ endfunction()
 # Benchmarks
 # ****************************************************************************
 
+add_rocprim_benchmark(benchmark_block_adjacent_difference.cpp)
 add_rocprim_benchmark(benchmark_block_discontinuity.cpp)
 add_rocprim_benchmark(benchmark_block_exchange.cpp)
 add_rocprim_benchmark(benchmark_block_histogram.cpp)
@@ -92,6 +108,7 @@ add_rocprim_benchmark(benchmark_block_radix_sort.cpp)
 add_rocprim_benchmark(benchmark_block_reduce.cpp)
 add_rocprim_benchmark(benchmark_block_scan.cpp)
 add_rocprim_benchmark(benchmark_block_sort.cpp)
+add_rocprim_benchmark(benchmark_device_adjacent_difference.cpp)
 add_rocprim_benchmark(benchmark_device_binary_search.cpp)
 add_rocprim_benchmark(benchmark_device_histogram.cpp)
 add_rocprim_benchmark(benchmark_device_merge.cpp)
@@ -107,6 +124,7 @@ add_rocprim_benchmark(benchmark_device_select.cpp)
 add_rocprim_benchmark(benchmark_device_segmented_radix_sort.cpp)
 add_rocprim_benchmark(benchmark_device_segmented_reduce.cpp)
 add_rocprim_benchmark(benchmark_device_transform.cpp)
+add_rocprim_benchmark(benchmark_warp_exchange.cpp)
 add_rocprim_benchmark(benchmark_warp_reduce.cpp)
 add_rocprim_benchmark(benchmark_warp_scan.cpp)
 add_rocprim_benchmark(benchmark_warp_sort.cpp)

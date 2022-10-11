@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2017-2019 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -46,10 +46,11 @@ function(add_hip_test TEST_NAME TEST_SOURCES)
   get_filename_component(TEST_TARGET ${TEST_MAIN_SOURCE} NAME_WE)
 
   add_executable(${TEST_TARGET} ${TEST_SOURCES})
+  rocm_install(TARGETS ${TEST_TARGET} COMPONENT tests)
 
   target_include_directories(${TEST_TARGET} SYSTEM BEFORE
     PUBLIC
-      ${COMMON_TEST_HEADER_DIRECTORY}
+      $<BUILD_INTERFACE:${COMMON_TEST_HEADER_DIRECTORY}>
   )
 
   if(TARGET GTest::GTest)
@@ -119,7 +120,8 @@ endfunction()
 # ****************************************************************************
 
 # HIP tests without using rocPRIM
-add_hip_test("hip.device_api" test_hip_api.cpp)
+add_hip_test("hip.device_api" hip/test_hip_api.cpp)
+add_hip_test("hip.async_copy" hip/test_hip_async_copy.cpp)
 
 # rocPRIM test
 add_subdirectory(rocprim)

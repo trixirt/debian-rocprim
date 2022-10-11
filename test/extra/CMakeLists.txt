@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2017-2021 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -29,7 +29,7 @@ project(rocprim_package_install_test CXX)
 # CMake modules
 list(APPEND CMAKE_MODULE_PATH
   ${CMAKE_CURRENT_SOURCE_DIR}/../../cmake
-  ${HIP_PATH}/cmake /opt/rocm/hip/cmake # FindHIP.cmake
+  ${HIP_PATH}/lib/cmake/hip ${HIP_PATH}/cmake /opt/rocm/lib/cmake/hip /opt/rocm/hip/cmake # FindHIP.cmake
 )
 
 # Use target ID syntax if supported for AMDGPU_TARGETS
@@ -43,7 +43,7 @@ endif()
 include(VerifyCompiler)
 
 # Find rocPRIM
-find_package(rocprim REQUIRED CONFIG HINTS ${rocprim_DIR} PATHS "/opt/rocm/rocprim")
+find_package(rocprim REQUIRED CONFIG PATHS "/opt/rocm/rocprim")
 
 # Build CXX flags
 set(CMAKE_CXX_STANDARD 14)
@@ -63,12 +63,6 @@ function(add_rocprim_test TEST_NAME TEST_SOURCES)
     PRIVATE
       ${rocprim_LIBRARIES} # roc::rocprim_hip
   )
-  foreach(amdgpu_target ${AMDGPU_TARGETS})
-    target_link_libraries(${TEST_TARGET}
-      PRIVATE
-        --amdgpu-target=${amdgpu_target}
-    )
-  endforeach()
   add_test(${TEST_NAME} ${TEST_TARGET})
 endfunction()
 

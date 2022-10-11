@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -91,14 +91,10 @@ struct headflag_scan_op_wrapper
     ROCPRIM_HOST_DEVICE inline
     result_type operator()(const input_type& t1, const input_type& t2)
     {
-        if(!rocprim::get<1>(t2))
-        {
-            return rocprim::make_tuple(
-                scan_op_(rocprim::get<0>(t1), rocprim::get<0>(t2)),
-                static_cast<F>(rocprim::get<1>(t1) || rocprim::get<1>(t2))
-            );
-        }
-        return t2;
+        return rocprim::make_tuple(!rocprim::get<1>(t2)
+                                       ? scan_op_(rocprim::get<0>(t1), rocprim::get<0>(t2))
+                                       : rocprim::get<0>(t2),
+                                   F {rocprim::get<1>(t2) || rocprim::get<1>(t1)});
     }
 
 private:

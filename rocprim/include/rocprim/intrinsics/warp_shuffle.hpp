@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -124,10 +124,29 @@ T warp_move_dpp(const T& input)
             //       because even using /permissive- they somehow still do delayed parsing of the body of
             //       function templates, even though they pinky-swear they don't.)
 #if !defined(__HIP_CPU_RT__)
-            return ::__builtin_amdgcn_update_dpp(0, v, dpp_ctrl, row_mask, bank_mask, bound_ctrl);
+            return ::__builtin_amdgcn_mov_dpp(v, dpp_ctrl, row_mask, bank_mask, bound_ctrl);
 #else
             return v;
 #endif
+        }
+    );
+}
+
+/// \brief Swizzle for any data type.
+///
+/// Each thread in warp obtains \p input from <tt>src_lane</tt>-th thread
+/// in warp, where <tt>src_lane</tt> is current lane with a <tt>mask</tt> applied.
+///
+/// \param input - input to pass to other threads
+template<class T, int mask>
+ROCPRIM_DEVICE ROCPRIM_INLINE
+T warp_swizzle(const T& input)
+{
+    return detail::warp_shuffle_op(
+        input,
+        [=](int v) -> int
+        {
+            return ::__builtin_amdgcn_ds_swizzle(v, mask);
         }
     );
 }

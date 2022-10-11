@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2020 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -54,12 +54,13 @@ constexpr T next_power_of_two(const T x, const T acc = 1)
     return acc >= x ? acc : next_power_of_two(x, 2 * acc);
 }
 
-template<class T>
-ROCPRIM_HOST_DEVICE inline
-constexpr auto ceiling_div(T a, T b)
-    -> typename std::enable_if<::rocprim::is_integral<T>::value, T>::type
+template <
+    typename T,
+    typename U,
+    std::enable_if_t<::rocprim::is_integral<T>::value && ::rocprim::is_unsigned<U>::value, int> = 0>
+ROCPRIM_HOST_DEVICE inline constexpr auto ceiling_div(const T a, const U b)
 {
-    return (a + b - 1) / b;
+    return a / b + (a % b > 0 ? 1 : 0);
 }
 
 ROCPRIM_HOST_DEVICE inline
@@ -307,6 +308,9 @@ struct select_type_impl<Fallback> : type_identity<extract_type<Fallback>> { };
 
 template <typename... Cases>
 using select_type = typename select_type_impl<Cases...>::type;
+
+template <bool Value>
+using bool_constant = std::integral_constant<bool, Value>;
 
 } // end namespace detail
 END_ROCPRIM_NAMESPACE
