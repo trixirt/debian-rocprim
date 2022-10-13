@@ -10,10 +10,8 @@ Uploaders: Maxime Chambonnet <maxzor@maxzor.eu>,
 Build-Depends: debhelper-compat (= 13),
                cmake,
                hipcc,
-               git,
                libamd-comgr-dev,
                libhsa-runtime-dev,
-               patchelf,
                rocminfo,
                rocm-cmake,
                libgtest-dev <!nocheck>
@@ -22,5 +20,8 @@ Package: librocprim2-dev
 Section: libdevel
 Architecture: any
 Depends: ${misc:Depends}
-Description: TODO
-
+Description: parallel primatives for GPU-accelerated code - headers
+ rocPRIM is a header-only library providing HIP parallel primitives for
+ developing performant GPU-accelerated code on the AMD ROCm platform.
+ .
+ This package provides AMD ROCm rocPRIM development headers.
