@@ -31,6 +31,9 @@ ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 	; fi
 endif
 
+override_dh_auto_install:
+	dh_auto_install --destdir=debian/tmp
+
 override_dh_dwz:
 	@echo "W: debug symbols unavailable for the moment[1]."
 	@echo "W: [1]: https://github.com/ROCm-Developer-Tools/hipamd/issues/17"
