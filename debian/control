@@ -16,7 +16,7 @@ Build-Depends: debhelper-compat (= 13),
                rocm-cmake,
                libgtest-dev <!nocheck>
 
-Package: librocprim2-dev
+Package: librocprim-dev
 Section: libdevel
 Architecture: any
 Depends: ${misc:Depends}
