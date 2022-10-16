@@ -20,7 +20,7 @@ Package: librocprim-dev
 Section: libdevel
 Architecture: any
 Depends: ${misc:Depends}
-Description: parallel primatives for GPU-accelerated code - headers
+Description: parallel primitives for GPU-accelerated code - headers
  rocPRIM is a header-only library providing HIP parallel primitives for
  developing performant GPU-accelerated code on the AMD ROCm platform.
  .
