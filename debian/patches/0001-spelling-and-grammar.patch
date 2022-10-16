@@ -1,6 +1,7 @@
 From: Cordell Bloor <cgmb@slerp.xyz>
 Date: Sun, 16 Oct 2022 02:57:55 -0400
 Subject: spelling and grammar
+Forwarded: https://github.com/ROCmSoftwarePlatform/rocPRIM/pull/379
 
 ---
  rocprim/include/rocprim/config.hpp                             | 2 +-
