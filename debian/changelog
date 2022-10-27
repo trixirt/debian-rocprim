@@ -1,5 +1,5 @@
-rocprim (5.3.0-1) UNRELEASED; urgency=medium
+rocprim (5.3.0-1) unstable; urgency=medium
 
   * Initial release. (Closes: #1021695)
 
- -- Cordell Bloor <cgmb@slerp.xyz>  Thu, 13 Oct 2022 18:56:33 -0400
+ -- Cordell Bloor <cgmb@slerp.xyz>  Thu, 27 Oct 2022 03:07:03 -0600
