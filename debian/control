@@ -15,6 +15,7 @@ Build-Depends: debhelper-compat (= 13),
                rocminfo,
                rocm-cmake,
                libgtest-dev <!nocheck>
+Rules-Requires-Root: no
 
 Package: librocprim-dev
 Section: libdevel
