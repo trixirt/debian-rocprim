@@ -1,0 +1,49 @@
+From 36a4d355b3ff1d6d64a7c308d0a0798a855679c3 Mon Sep 17 00:00:00 2001
+From: Vincent van Heertum <93536747+vince-streamhpc@users.noreply.github.com>
+Date: Thu, 11 Aug 2022 05:12:20 +0200
+Subject: [PATCH] Fix failing warp_sort test and block_sort test on ROCm 5.3.0
+ (#347)
+
+---
+ .../include/rocprim/block/detail/block_sort_bitonic.hpp    | 7 ++++++-
+ rocprim/include/rocprim/warp/detail/warp_sort_shuffle.hpp  | 5 +++++
+ 2 files changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/rocprim/include/rocprim/block/detail/block_sort_bitonic.hpp b/rocprim/include/rocprim/block/detail/block_sort_bitonic.hpp
+index 467c7296..563353f9 100644
+--- a/rocprim/include/rocprim/block/detail/block_sort_bitonic.hpp
++++ b/rocprim/include/rocprim/block/detail/block_sort_bitonic.hpp
+@@ -1,4 +1,4 @@
+-// Copyright (c) 2017-2021 Advanced Micro Devices, Inc. All rights reserved.
++// Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
+ //
+ // Permission is hereby granted, free of charge, to any person obtaining a copy
+ // of this software and associated documentation files (the "Software"), to deal
+@@ -433,6 +433,11 @@ class block_sort_bitonic
+         for(unsigned base = 0; base < ItemsPerThread; base += 2 * offset)
+         {
+             ROCPRIM_UNROLL
++// Workaround to prevent the compiler thinking this is a 'Parallel Loop' on clang 15
++// because it leads to invalid code generation with `T` = `char` and `ItemsPerthread` = 4
++#if defined(__clang_major__) && __clang_major__ >= 15
++    #pragma clang loop vectorize(disable)
++#endif
+             for(unsigned i = 0; i < offset; ++i)
+             {
+                 thread_swap(kv..., dir, base + i, base + i + offset, compare_function);
+diff --git a/rocprim/include/rocprim/warp/detail/warp_sort_shuffle.hpp b/rocprim/include/rocprim/warp/detail/warp_sort_shuffle.hpp
+index ace5441c..ca543a1b 100644
+--- a/rocprim/include/rocprim/warp/detail/warp_sort_shuffle.hpp
++++ b/rocprim/include/rocprim/warp/detail/warp_sort_shuffle.hpp
+@@ -231,6 +231,11 @@ class warp_sort_shuffle
+             const bool local_dir = ((base & group_size) > 0) != dir;
+ 
+             ROCPRIM_UNROLL
++// Workaround to prevent the compiler thinking this is a 'Parallel Loop' on clang 15
++// because it leads to invalid code generation with `T` = `char` and `ItemsPerthread` = 4
++#if defined(__clang_major__) && __clang_major__ >= 15
++    #pragma clang loop vectorize(disable)
++#endif
+             for(unsigned i = 0; i < offset; ++i) {
+                 thread_swap(kv..., base + i, base + i + offset, local_dir, compare_function);
+             }
