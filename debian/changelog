@@ -2,6 +2,7 @@ rocprim (5.3.3-1) UNRELEASED; urgency=medium
 
   * Team upload.
   * New upstream version
+  * Add salsa-ci file (routine-update)
 
  -- Étienne Mollier <emollier@debian.org>  Thu, 17 Nov 2022 20:47:01 +0100
 
