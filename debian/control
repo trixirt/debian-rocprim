@@ -14,7 +14,7 @@ Build-Depends: debhelper-compat (= 13),
                libamd-comgr-dev,
                libhsa-runtime-dev,
                rocminfo,
-               rocm-cmake,
+               rocm-cmake (>= 5.3.0),
                libgtest-dev <!nocheck>
 Rules-Requires-Root: no
 
