@@ -8,9 +8,6 @@ export VERBOSE=1
 CFLAGS   := $(subst -fstack-protector-strong,-Xarch_host -fstack-protector-strong,$(CFLAGS))
 CXXFLAGS := $(subst -fstack-protector-strong,-Xarch_host -fstack-protector-strong,$(CXXFLAGS))
 
-%:
-	dh $@ -Scmake
-
 CMAKE_FLAGS = \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DCMAKE_INSTALL_LIBDIR=share \
