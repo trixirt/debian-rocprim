@@ -1,8 +1,12 @@
 #!/usr/bin/make -f
 export CXX=hipcc
-export DEB_BUILD_MAINT_OPTIONS = hardening=-all
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export VERBOSE=1
 #export AMD_LOG_LEVEL=4
+
+# filter incompatible options from affecting device code
+CFLAGS   := $(subst -fstack-protector-strong,-Xarch_host -fstack-protector-strong,$(CFLAGS))
+CXXFLAGS := $(subst -fstack-protector-strong,-Xarch_host -fstack-protector-strong,$(CXXFLAGS))
 
 %:
 	dh $@ -Scmake
