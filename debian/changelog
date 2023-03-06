@@ -1,10 +1,13 @@
-rocprim (5.3.3-3) UNRELEASED; urgency=medium
+rocprim (5.3.3-3) unstable; urgency=medium
 
   * Move cmake files to /usr/share.
   * d/rules: drop override for debug symbols
   * d/control: update standards version to 4.6.2
+  * d/control: library is arch-independent
+  * d/rules: enable hardening flags for tests
+  * d/rules: enable gfx1010 and gfx1011 for tests
 
- -- Cordell Bloor <cgmb@slerp.xyz>  Fri, 03 Mar 2023 19:19:10 -0700
+ -- Cordell Bloor <cgmb@slerp.xyz>  Mon, 06 Mar 2023 00:55:17 -0700
 
 rocprim (5.3.3-2) unstable; urgency=medium
 
