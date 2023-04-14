@@ -8,6 +8,7 @@ Vcs-Browser: https://salsa.debian.org/rocm-team/rocprim
 Maintainer: Debian ROCm Team <debian-ai@lists.debian.org>
 Uploaders: Maxime Chambonnet <maxzor@maxzor.eu>,
            Cordell Bloor <cgmb@slerp.xyz>,
+           Christian Kastner <ckk@debian.org>,
 Build-Depends: debhelper-compat (= 13),
                cmake,
                hipcc,
