@@ -1,3 +1,11 @@
+rocprim (5.3.3-4) unstable; urgency=medium
+
+  * Add libamdhip64-dev to Depends (Closes: #1034476)
+  * Fix Maintainer name
+  * Add myself to Uploaders
+
+ -- Christian Kastner <ckk@debian.org>  Sun, 16 Apr 2023 13:40:58 +0200
+
 rocprim (5.3.3-3) unstable; urgency=medium
 
   * Move cmake files to /usr/share.
