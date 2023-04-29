@@ -1,8 +1,12 @@
 rocprim (5.3.3-4) unstable; urgency=medium
 
+  * Team upload.
+
   * Add libamdhip64-dev to Depends (Closes: #1034476)
-  * Fix Maintainer name
-  * Add myself to Uploaders
+  * Temporarily revert the following changes from 5.3.3-3:
+    + Move cmake files to /usr/share.
+    + d/control: library is arch-independent
+    These will be re-enabled after bookworm is released.
 
  -- Christian Kastner <ckk@debian.org>  Sun, 16 Apr 2023 13:40:58 +0200
 
