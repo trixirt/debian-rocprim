@@ -10,7 +10,7 @@ CXXFLAGS := $(subst -fstack-protector-strong,-Xarch_host -fstack-protector-stron
 
 CMAKE_FLAGS = \
 	-DCMAKE_BUILD_TYPE=Release \
-	-DCMAKE_INSTALL_LIBDIR=share \
+	-DCMAKE_INSTALL_LIBDIR=lib \
 	-DAMDGPU_TARGETS="gfx803;gfx900;gfx906;gfx908;gfx90a;gfx1010;gfx1011;gfx1030" \
 	-DBUILD_FILE_REORG_BACKWARD_COMPATIBILITY=OFF
 

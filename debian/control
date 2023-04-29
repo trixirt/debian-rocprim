@@ -5,23 +5,22 @@ Priority: optional
 Standards-Version: 4.6.2
 Vcs-Git: https://salsa.debian.org/rocm-team/rocprim.git
 Vcs-Browser: https://salsa.debian.org/rocm-team/rocprim
-Maintainer: Debian ROCm Team <debian-ai@lists.debian.org>
+Maintainer: ROCm Team <debian-ai@lists.debian.org>
 Uploaders: Maxime Chambonnet <maxzor@maxzor.eu>,
            Cordell Bloor <cgmb@slerp.xyz>,
-           Christian Kastner <ckk@debian.org>,
 Build-Depends: debhelper-compat (= 13),
                cmake,
                hipcc,
                libamd-comgr-dev,
                libhsa-runtime-dev,
                rocminfo,
-               rocm-cmake (>= 5.3.0),
+               rocm-cmake,
                libgtest-dev <!nocheck>
 Rules-Requires-Root: no
 
 Package: librocprim-dev
 Section: libdevel
-Architecture: all
+Architecture: any
 Depends: ${misc:Depends}, libamdhip64-dev
 Description: parallel primitives for GPU-accelerated code - headers
  rocPRIM is a header-only library providing HIP parallel primitives for
