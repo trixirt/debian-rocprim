@@ -1,3 +1,13 @@
+rocprim (5.3.3-5) unstable; urgency=medium
+
+  * Reintroduce the changes we temporarily reverted for bookworm, these being:
+    - d/control: library is arch-independent
+    - move cmake files to /usr/share
+  * Add myself to Uploaders
+  * Fix Maintainer name
+
+ -- Christian Kastner <ckk@debian.org>  Sun, 11 Jun 2023 15:35:33 +0200
+
 rocprim (5.3.3-4) unstable; urgency=medium
 
   * Team upload.
