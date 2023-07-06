@@ -1,3 +1,10 @@
+rocprim (5.3.3-6~exp1) experimental; urgency=medium
+
+  * Add librocprim-tests package for autopkgtests.
+  * d/rules: explicitly disable lto
+
+ -- Cordell Bloor <cgmb@slerp.xyz>  Thu, 06 Jul 2023 00:37:30 -0600
+
 rocprim (5.3.3-5) unstable; urgency=medium
 
   * Reintroduce the changes we temporarily reverted for bookworm, these being:
