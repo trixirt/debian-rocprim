@@ -13,17 +13,16 @@ CMAKE_FLAGS = \
 	-DAMDGPU_TARGETS="gfx803;gfx900;gfx906;gfx908;gfx90a;gfx1010;gfx1011;gfx1030" \
 	-DBUILD_FILE_REORG_BACKWARD_COMPATIBILITY=OFF
 
-ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
-CMAKE_FLAGS += -DBUILD_TEST=ON
-endif
-
 %:
 	dh $@ -Scmake
 
-override_dh_auto_configure:
+override_dh_auto_configure-arch:
+	dh_auto_configure -- $(CMAKE_FLAGS) -DBUILD_TEST=ON
+
+override_dh_auto_configure-indep:
 	dh_auto_configure -- $(CMAKE_FLAGS)
 
-override_dh_auto_test:
+override_dh_auto_test-arch:
 ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 	set -e \
 	; if [ -r /dev/kfd ] \
@@ -33,5 +32,13 @@ ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 	; fi
 endif
 
-override_dh_auto_install:
+override_dh_auto_test-indep:
+	:
+
+execute_before_dh_install-arch:
+	# Note the rpath field setting may cause reproducible build issues.
+	# This should be removed earlier in the toolchain if possible.
+	patchelf --remove-rpath ./debian/tmp/usr/bin/test_*
+
+override_dh_auto_install-indep:
 	dh_auto_install --destdir=debian/tmp
