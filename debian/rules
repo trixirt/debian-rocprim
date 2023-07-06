@@ -5,7 +5,6 @@ export VERBOSE=1
 #export AMD_LOG_LEVEL=4
 
 # filter incompatible options from affecting device code
-CFLAGS   := $(subst -fstack-protector-strong,-Xarch_host -fstack-protector-strong,$(CFLAGS))
 CXXFLAGS := $(subst -fstack-protector-strong,-Xarch_host -fstack-protector-strong,$(CXXFLAGS))
 
 CMAKE_FLAGS = \
