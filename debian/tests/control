@@ -1,0 +1,4 @@
+Test-Command: /bin/sh debian/tests/upstream-binaries librocprim-tests
+Depends: librocprim-tests
+Restrictions: skippable, allow-stderr
+Architecture: amd64 arm64 ppc64el
