@@ -1,6 +1,6 @@
 #!/usr/bin/make -f
 export CXX=hipcc
-export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all optimize=-lto
 export VERBOSE=1
 #export AMD_LOG_LEVEL=4
 
