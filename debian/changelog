@@ -1,3 +1,9 @@
+rocprim (5.3.3-6) unstable; urgency=medium
+
+  * Migrate to unstable.
+
+ -- Cordell Bloor <cgmb@slerp.xyz>  Wed, 12 Jul 2023 15:15:55 -0600
+
 rocprim (5.3.3-6~exp1) experimental; urgency=medium
 
   * Add librocprim-tests package for autopkgtests.
