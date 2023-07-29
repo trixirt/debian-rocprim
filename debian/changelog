@@ -1,8 +1,9 @@
 rocprim (5.5.1-1) unstable; urgency=medium
 
   * New upstream version 5.5.1
+  * d/rules: drop gfx1011 from librocprim-tests
 
- -- Cordell Bloor <cgmb@slerp.xyz>  Fri, 28 Jul 2023 20:33:45 -0600
+ -- Cordell Bloor <cgmb@slerp.xyz>  Fri, 28 Jul 2023 21:58:33 -0600
 
 rocprim (5.3.3-6) unstable; urgency=medium
 
