@@ -1,2 +1,3 @@
 usr/share/doc/rocprim/LICENSE.txt
 usr/bin/test_*
+usr/bin/rocprim/CTestTestfile.cmake
