@@ -3,7 +3,7 @@ Source: https://github.com/ROCmSoftwarePlatform/rocPRIM
 Upstream-Name: rocPRIM
 
 Files: *
-Copyright: 2017-2022, Advanced Micro Devices, Inc.
+Copyright: 2017-2023, Advanced Micro Devices, Inc.
 License: Expat
 
 Files: benchmark/cmdparser.hpp
@@ -24,15 +24,6 @@ Files: rocprim/include/rocprim/device/detail/device_merge_sort_mergepath.hpp
 Copyright: 2022, Advanced Micro Devices, Inc.
            2011-2021, NVIDIA CORPORATION.
 License: BSD-3-clause
-
-Files: cmake/DownloadProject.CMakeLists.cmake.in
-       cmake/DownloadProject.cmake
-Copyright: 2015, Craig Scott
-License: Expat
-Comment:
- Files look to originate from [1].
- .
- [1]: https://github.com/Crascit/DownloadProject
 
 Files: debian/*
 Copyright: 2022, Maxime Chambonnet <maxzor@maxzor.eu>
