@@ -21,11 +21,10 @@
 // SOFTWARE.
 
 #include <iostream>
-#include <chrono>
-#include <vector>
+#include <limits>
 #include <locale>
 #include <string>
-#include <limits>
+#include <vector>
 
 // Google Benchmark
 #include "benchmark/benchmark.h"
@@ -38,15 +37,6 @@
 
 // rocPRIM
 #include <rocprim/rocprim.hpp>
-
-#define HIP_CHECK(condition)         \
-  {                                   \
-    hipError_t error = condition;    \
-    if(error != hipSuccess){         \
-        std::cout << "HIP error: " << error << " line: " << __LINE__ << std::endl; \
-        exit(error); \
-    } \
-  }
 
 #ifndef DEFAULT_N
 const size_t DEFAULT_N = 1024 * 1024 * 32;
@@ -125,10 +115,16 @@ void run_encode_benchmark(benchmark::State& state, size_t max_length, hipStream_
     }
     HIP_CHECK(hipDeviceSynchronize());
 
+    // HIP events creation
+    hipEvent_t start, stop;
+    HIP_CHECK(hipEventCreate(&start));
+    HIP_CHECK(hipEventCreate(&stop));
+
     const unsigned int batch_size = 10;
     for (auto _ : state)
     {
-        auto start = std::chrono::high_resolution_clock::now();
+        // Record start event
+        HIP_CHECK(hipEventRecord(start, stream));
 
         for(size_t i = 0; i < batch_size; i++)
         {
@@ -139,13 +135,20 @@ void run_encode_benchmark(benchmark::State& state, size_t max_length, hipStream_
                 stream, false
             );
         }
-        HIP_CHECK(hipStreamSynchronize(stream));
 
-        auto end = std::chrono::high_resolution_clock::now();
-        auto elapsed_seconds =
-            std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-        state.SetIterationTime(elapsed_seconds.count());
+        // Record stop event and wait until it completes
+        HIP_CHECK(hipEventRecord(stop, stream));
+        HIP_CHECK(hipEventSynchronize(stop));
+
+        float elapsed_mseconds;
+        HIP_CHECK(hipEventElapsedTime(&elapsed_mseconds, start, stop));
+        state.SetIterationTime(elapsed_mseconds / 1000);
     }
+
+    // Destroy HIP events
+    HIP_CHECK(hipEventDestroy(start));
+    HIP_CHECK(hipEventDestroy(stop));
+
     state.SetBytesProcessed(state.iterations() * batch_size * size * sizeof(key_type));
     state.SetItemsProcessed(state.iterations() * batch_size * size);
 
@@ -228,10 +231,16 @@ void run_non_trivial_runs_benchmark(benchmark::State& state, size_t max_length, 
     }
     HIP_CHECK(hipDeviceSynchronize());
 
+    // HIP events creation
+    hipEvent_t start, stop;
+    HIP_CHECK(hipEventCreate(&start));
+    HIP_CHECK(hipEventCreate(&stop));
+
     const unsigned int batch_size = 10;
     for (auto _ : state)
     {
-        auto start = std::chrono::high_resolution_clock::now();
+        // Record start event
+        HIP_CHECK(hipEventRecord(start, stream));
 
         for(size_t i = 0; i < batch_size; i++)
         {
@@ -242,13 +251,20 @@ void run_non_trivial_runs_benchmark(benchmark::State& state, size_t max_length, 
                 stream, false
             );
         }
-        HIP_CHECK(hipStreamSynchronize(stream));
 
-        auto end = std::chrono::high_resolution_clock::now();
-        auto elapsed_seconds =
-            std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-        state.SetIterationTime(elapsed_seconds.count());
+        // Record stop event and wait until it completes
+        HIP_CHECK(hipEventRecord(stop, stream));
+        HIP_CHECK(hipEventSynchronize(stop));
+
+        float elapsed_mseconds;
+        HIP_CHECK(hipEventElapsedTime(&elapsed_mseconds, start, stop));
+        state.SetIterationTime(elapsed_mseconds / 1000);
     }
+
+    // Destroy HIP events
+    HIP_CHECK(hipEventDestroy(start));
+    HIP_CHECK(hipEventDestroy(stop));
+
     state.SetBytesProcessed(state.iterations() * batch_size * size * sizeof(key_type));
     state.SetItemsProcessed(state.iterations() * batch_size * size);
 
@@ -259,14 +275,16 @@ void run_non_trivial_runs_benchmark(benchmark::State& state, size_t max_length, 
     HIP_CHECK(hipFree(d_runs_count_output));
 }
 
-#define CREATE_ENCODE_BENCHMARK(T) \
-benchmark::RegisterBenchmark( \
-    (std::string("run_length_encode") + "<" #T ">" + \
-        "([1, " + std::to_string(max_length) + "])" \
-    ).c_str(), \
-    run_encode_benchmark<T>, \
-    max_length, stream, size \
-)
+#define CREATE_ENCODE_BENCHMARK(T)                                                                \
+    benchmark::RegisterBenchmark(                                                                 \
+        bench_naming::format_name(                                                                \
+            "{lvl:device,algo:run_length_encode,subalgo:trivial,key_type:" #T ",keys_max_length:" \
+            + std::to_string(max_length) + ",cfg:default_config}")                                \
+            .c_str(),                                                                             \
+        run_encode_benchmark<T>,                                                                  \
+        max_length,                                                                               \
+        stream,                                                                                   \
+        size)
 
 void add_encode_benchmarks(size_t max_length,
                            std::vector<benchmark::internal::Benchmark*>& benchmarks,
@@ -292,14 +310,17 @@ void add_encode_benchmarks(size_t max_length,
     benchmarks.insert(benchmarks.end(), bs.begin(), bs.end());
 }
 
-#define CREATE_NON_TRIVIAL_RUNS_BENCHMARK(T) \
-benchmark::RegisterBenchmark( \
-    (std::string("run_length_encode_non_trivial_runs") + "<" #T ">" + \
-        "([1, " + std::to_string(max_length) + "])" \
-    ).c_str(), \
-    run_non_trivial_runs_benchmark<T>, \
-    max_length, stream, size \
-)
+#define CREATE_NON_TRIVIAL_RUNS_BENCHMARK(T)                                      \
+    benchmark::RegisterBenchmark(                                                 \
+        bench_naming::format_name(                                                \
+            "{lvl:device,algo:run_length_encode,subalgo:non_trivial,key_type:" #T \
+            ",keys_max_length:"                                                   \
+            + std::to_string(max_length) + ",cfg:default_config}")                \
+            .c_str(),                                                             \
+        run_non_trivial_runs_benchmark<T>,                                        \
+        max_length,                                                               \
+        stream,                                                                   \
+        size)
 
 void add_non_trivial_runs_benchmarks(size_t max_length,
                                      std::vector<benchmark::internal::Benchmark*>& benchmarks,
@@ -330,12 +351,17 @@ int main(int argc, char *argv[])
     cli::Parser parser(argc, argv);
     parser.set_optional<size_t>("size", "size", DEFAULT_N, "number of values");
     parser.set_optional<int>("trials", "trials", -1, "number of iterations");
+    parser.set_optional<std::string>("name_format",
+                                     "name_format",
+                                     "human",
+                                     "either: json,human,txt");
     parser.run_and_exit_if_error();
 
     // Parse argv
     benchmark::Initialize(&argc, argv);
     const size_t size = parser.get<size_t>("size");
     const int trials = parser.get<int>("trials");
+    bench_naming::set_format(parser.get<std::string>("name_format"));
 
     // HIP
     hipStream_t stream = 0; // default

@@ -22,28 +22,34 @@
 #define ROCPRIM_BENCHMARK_UTILS_HPP_
 
 #include <algorithm>
-#include <vector>
-#include <random>
-#include <type_traits>
-#include <string>
+#include <iostream>
 #include <memory>
+#include <random>
+#include <regex>
+#include <sstream>
+#include <string>
+#include <type_traits>
+#include <vector>
 
 #ifdef WIN32
 #include <numeric>
 #endif
 
-#include <rocprim/rocprim.hpp>
 #include "benchmark/benchmark.h"
+#include <rocprim/rocprim.hpp>
 
-#define HIP_CHECK(condition)         \
-  {                                  \
-    hipError_t error = condition;    \
-    if(error != hipSuccess){         \
-        std::cout << "HIP error: " << error << " line: " << __LINE__ << std::endl; \
-        exit(error); \
-    } \
-  }
+#define HIP_CHECK(condition)                                                                \
+    {                                                                                       \
+        hipError_t error = condition;                                                       \
+        if(error != hipSuccess)                                                             \
+        {                                                                                   \
+            std::cout << "HIP error: " << hipGetErrorString(error) << " line: " << __LINE__ \
+                      << std::endl;                                                         \
+            exit(error);                                                                    \
+        }                                                                                   \
+    }
 
+#define TUNING_SHARED_MEMORY_MAX 65536u
 // Support half operators on host side
 
 ROCPRIM_HOST inline
@@ -210,7 +216,9 @@ struct custom_type
     ROCPRIM_HOST_DEVICE inline
     bool operator<(const custom_type& rhs) const
     {
-        return (x < rhs.x || (x == rhs.x && y < rhs.y));
+        // intentionally suboptimal choice for short-circuting,
+        // required to generate more performant device code
+        return ((x == rhs.x && y < rhs.y) || x < rhs.x);
     }
 
     ROCPRIM_HOST_DEVICE inline
@@ -353,6 +361,10 @@ void static_for_each(Args&&... args)
 struct config_autotune_interface
 {
     virtual std::string name() const                               = 0;
+    virtual std::string sort_key() const
+    {
+        return name();
+    };
     virtual ~config_autotune_interface()                           = default;
     virtual void run(benchmark::State&, size_t, hipStream_t) const = 0;
 };
@@ -388,7 +400,7 @@ struct config_autotune_register
         // sorting to get a consistent order because order of initialization of static variables is undefined by the C++ standard.
         std::sort(configs.begin(),
                   configs.end(),
-                  [](const auto& l, const auto& r) { return l->name() < r->name(); });
+                  [](const auto& l, const auto& r) { return l->sort_key() < r->sort_key(); });
         size_t configs_per_instance
             = (configs.size() + parallel_instance_count - 1) / parallel_instance_count;
         size_t start = std::min(parallel_instance_index * configs_per_instance, configs.size());
@@ -419,6 +431,184 @@ inline std::string pad_string(std::string str, const size_t len)
     return str;
 }
 
+struct bench_naming
+{
+public:
+    enum format
+    {
+        json,
+        human,
+        txt
+    };
+    static format& get_format()
+    {
+        static format storage = human;
+        return storage;
+    }
+    static void set_format(std::string argument)
+    {
+        format result = human;
+        if(argument == "json")
+        {
+            result = json;
+        }
+        else if(argument == "txt")
+        {
+            result = txt;
+        }
+        get_format() = result;
+    }
+
+private:
+    static std::string matches_as_json(std::sregex_iterator& matches)
+    {
+        std::stringstream result;
+        int               brackets_count = 1;
+        result << "{";
+        bool insert_comma = false;
+        for(std::sregex_iterator i = matches; i != std::sregex_iterator(); ++i)
+        {
+            std::smatch m = *i;
+            if(insert_comma)
+            {
+                result << ",";
+            }
+            else
+            {
+                insert_comma = true;
+            }
+            result << "\"" << m[1].str() << "\":";
+            if(m[2].length() > 0)
+            {
+                if(m[2].str().find_first_not_of("0123456789") == std::string::npos)
+                {
+                    result << m[2].str();
+                }
+                else
+                {
+                    result << "\"" << m[2].str() << "\"";
+                }
+                if(m[3].length() > 0 && brackets_count > 0)
+                {
+                    int n = std::min(brackets_count, static_cast<int>(m[3].length()));
+                    brackets_count -= n;
+                    for(int c = 0; c < n; c++)
+                    {
+                        result << "}";
+                    }
+                }
+            }
+            else
+            {
+                brackets_count++;
+                result << "{";
+                insert_comma = false;
+            }
+        }
+        while(brackets_count > 0)
+        {
+            brackets_count--;
+            result << "}";
+        }
+        return result.str();
+    }
+
+    static std::string matches_as_human(std::sregex_iterator& matches)
+    {
+        std::stringstream result;
+        int               brackets_count = 0;
+        bool              insert_comma   = false;
+        for(std::sregex_iterator i = matches; i != std::sregex_iterator(); ++i)
+        {
+            std::smatch m = *i;
+            if(insert_comma)
+            {
+                result << ",";
+            }
+            else
+            {
+                insert_comma = true;
+            }
+            if(m[2].length() > 0)
+            {
+                result << m[2].str();
+                if(m[3].length() > 0 && brackets_count > 0)
+                {
+                    int n = std::min(brackets_count, static_cast<int>(m[3].length()));
+                    brackets_count -= n;
+                    for(int c = 0; c < n; c++)
+                    {
+                        result << ">";
+                    }
+                }
+            }
+            else
+            {
+                brackets_count++;
+                result << "<";
+                insert_comma = false;
+            }
+        }
+        while(brackets_count > 0)
+        {
+            brackets_count--;
+            result << ">";
+        }
+        return result.str();
+    }
+
+public:
+    static std::string format_name(std::string string)
+    {
+        format     format = get_format();
+std::regex r("([A-z0-9]*):\\s*((?:custom_type<[A-z0-9,]*>)|[A-z:\\(\\)\\.<>\\s0-9]*)(\\}*)");
+        // First we perform some checks
+        bool checks[4] = {false};
+        for(std::sregex_iterator i = std::sregex_iterator(string.begin(), string.end(), r);
+            i != std::sregex_iterator();
+            ++i)
+        {
+            std::smatch m = *i;
+            if(m[1].str() == "lvl")
+            {
+                checks[0] = true;
+            }
+            else if(m[1].str() == "algo")
+            {
+                checks[1] = true;
+            }
+            else if(m[1].str() == "cfg")
+            {
+                checks[2] = true;
+            }
+        }
+        std::string string_substitute = std::regex_replace(string, r, "");
+        checks[3] = string_substitute.find_first_not_of(" ,{}") == std::string::npos;
+        for(bool check_name_format : checks)
+        {
+            if(!check_name_format)
+            {
+                std::cout << "Benchmark name \"" << string
+                          << "\" not in the correct format (e.g. "
+                             "{lvl:block,algo:reduce,cfg:default_config} )"
+                          << std::endl;
+                exit(1);
+            }
+        }
+
+        // Now we generate the desired format
+        std::sregex_iterator matches = std::sregex_iterator(string.begin(), string.end(), r);
+
+        switch(format)
+        {
+            case format::json: return matches_as_json(matches);
+            case format::human: return matches_as_human(matches);
+            case format::txt: return string;
+        }
+        return string;
+    }
+};
+
 template <typename T>
 struct Traits
 {
@@ -438,33 +628,64 @@ template <>
 inline const char* Traits<int8_t>::name() { return "int8_t"; }
 template <>
 inline const char* Traits<uint8_t>::name() { return "uint8_t"; }
-template <>
-inline const char* Traits<rocprim::half>::name() { return "rocprim::half"; }
-template <>
-inline const char* Traits<long long>::name() { return "long long"; }
+template<>
+inline const char* Traits<uint16_t>::name()
+{
+    return "uint16_t";
+}
+template<>
+inline const char* Traits<uint32_t>::name()
+{
+    return "uint32_t";
+}
+template<>
+inline const char* Traits<rocprim::half>::name()
+{
+    return "rocprim::half";
+}
+template<>
+inline const char* Traits<long long>::name()
+{
+    return "int64_t";
+}
+// On MSVC `int64_t` and `long long` are the same, leading to multiple definition errors
+#ifndef WIN32
 template <>
 inline const char* Traits<int64_t>::name() { return "int64_t"; }
+#endif
 template <>
 inline const char* Traits<float>::name() { return "float"; }
 template <>
 inline const char* Traits<double>::name() { return "double"; }
-template <>
-inline const char* Traits<custom_type<int, int>>::name() { return "custom_int2"; }
-template <>
-inline const char* Traits<custom_type<float, float>>::name() { return "custom_float2"; }
-template <>
-inline const char* Traits<custom_type<double, double>>::name() { return "custom_double2"; }
-template <>
-inline const char* Traits<custom_type<char, double>>::name() { return "custom_char_double"; }
+template<>
+inline const char* Traits<custom_type<int, int>>::name()
+{
+    return "custom_type<int,int>";
+}
+template<>
+inline const char* Traits<custom_type<float, float>>::name()
+{
+    return "custom_type<float,float>";
+}
+template<>
+inline const char* Traits<custom_type<double, double>>::name()
+{
+    return "custom_type<double,double>";
+}
+template<>
+inline const char* Traits<custom_type<char, double>>::name()
+{
+    return "custom_type<char,double>";
+}
 template<>
 inline const char* Traits<custom_type<long, double>>::name()
 {
-    return "custom_long_double";
+    return "custom_type<long,double>";
 }
 template<>
 inline const char* Traits<custom_type<long long, double>>::name()
 {
-    return "custom_longlong_double";
+    return "custom_type<int64_t,double>";
 }
 template<>
 inline const char* Traits<rocprim::empty_type>::name()
@@ -474,12 +695,12 @@ inline const char* Traits<rocprim::empty_type>::name()
 template<>
 inline const char* Traits<HIP_vector_type<float, 2>>::name()
 {
-    return "custom_float2";
+    return "float2";
 }
 template<>
 inline const char* Traits<HIP_vector_type<double, 2>>::name()
 {
-    return "custom_double2";
+    return "double2";
 }
 
 inline void add_common_benchmark_info()

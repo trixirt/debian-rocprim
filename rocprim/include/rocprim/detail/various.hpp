@@ -27,6 +27,22 @@
 #include "../types.hpp"
 #include "../type_traits.hpp"
 
+#include <hip/hip_runtime.h>
+
+// Check for c++ standard library features, in a backwards compatible manner
+#ifndef __has_include
+    #define __has_include(x) 0
+#endif
+
+#if __has_include(<version>) // version is only mandated in c++20
+    #include <version>
+    #if __cpp_lib_as_const >= 201510L
+        #include <utility>
+    #endif
+#else
+    #include <utility>
+#endif
+
 // TODO: Refactor when it gets crowded
 
 BEGIN_ROCPRIM_NAMESPACE
@@ -159,73 +175,6 @@ struct match_fundamental_type
         >::type;
 };
 
-template<class T>
-ROCPRIM_DEVICE ROCPRIM_INLINE
-auto store_volatile(T * output, T value)
-    -> typename std::enable_if<std::is_fundamental<T>::value>::type
-{
-    // TODO: check GCC
-    // error: binding reference of type ‘const half_float::half&’ to ‘volatile half_float::half’ discards qualifiers
-#if !(defined(__HIP_CPU_RT__ ) && defined(__GNUC__))
-    *const_cast<volatile T*>(output) = value;
-#else
-    *output = value;
-#endif
-}
-
-template<class T>
-ROCPRIM_DEVICE ROCPRIM_INLINE
-auto store_volatile(T * output, T value)
-    -> typename std::enable_if<!std::is_fundamental<T>::value>::type
-{
-    using fundamental_type = typename match_fundamental_type<T>::type;
-    constexpr unsigned int n = sizeof(T) / sizeof(fundamental_type);
-
-    auto input_ptr = reinterpret_cast<volatile fundamental_type*>(&value);
-    auto output_ptr = reinterpret_cast<volatile fundamental_type*>(output);
-
-    ROCPRIM_UNROLL
-    for(unsigned int i = 0; i < n; i++)
-    {
-        output_ptr[i] = input_ptr[i];
-    }
-}
-
-template<class T>
-ROCPRIM_DEVICE ROCPRIM_INLINE
-auto load_volatile(T * input)
-    -> typename std::enable_if<std::is_fundamental<T>::value, T>::type
-{
-    // TODO: check GCC
-    // error: binding reference of type ‘const half_float::half&’ to ‘volatile half_float::half’ discards qualifiers
-#if !(defined(__HIP_CPU_RT__ ) && defined(__GNUC__))
-    T retval = *const_cast<volatile T*>(input);
-    return retval;
-#else
-    return *input;
-#endif
-}
-
-template<class T>
-ROCPRIM_DEVICE ROCPRIM_INLINE
-auto load_volatile(T * input)
-    -> typename std::enable_if<!std::is_fundamental<T>::value, T>::type
-{
-    using fundamental_type = typename match_fundamental_type<T>::type;
-    constexpr unsigned int n = sizeof(T) / sizeof(fundamental_type);
-
-    T retval;
-    auto output_ptr = reinterpret_cast<volatile fundamental_type*>(&retval);
-    auto input_ptr = reinterpret_cast<volatile fundamental_type*>(input);
-
-    ROCPRIM_UNROLL
-    for(unsigned int i = 0; i < n; i++)
-    {
-        output_ptr[i] = input_ptr[i];
-    }
-    return retval;
-}
-
 // A storage-backing wrapper that allows types with non-trivial constructors to be aliased in unions
 template <typename T>
 struct raw_storage
@@ -241,21 +190,29 @@ struct raw_storage
     {
         return reinterpret_cast<T&>(*this);
     }
+
+    ROCPRIM_HOST_DEVICE const T& get() const
+    {
+        return reinterpret_cast<const T&>(*this);
+    }
 };
 
-// Checks if two iterators have the same type and value
+// Checks if two iterators can possibly alias
 template<class Iterator1, class Iterator2>
-inline
-bool are_iterators_equal(Iterator1, Iterator2)
+inline bool can_iterators_alias(Iterator1, Iterator2, const size_t size)
 {
-    return false;
+    (void)size;
+    return true;
 }
 
-template<class Iterator>
-inline
-bool are_iterators_equal(Iterator iter1, Iterator iter2)
+template<typename Value1, typename Value2>
+inline bool can_iterators_alias(Value1* iter1, Value2* iter2, const size_t size)
 {
-    return iter1 == iter2;
+    const uintptr_t start1 = reinterpret_cast<uintptr_t>(iter1);
+    const uintptr_t start2 = reinterpret_cast<uintptr_t>(iter2);
+    const uintptr_t end1   = reinterpret_cast<uintptr_t>(iter1 + size);
+    const uintptr_t end2   = reinterpret_cast<uintptr_t>(iter2 + size);
+    return start1 < end2 && start2 < end1;
 }
 
 template<class...>
@@ -311,6 +268,75 @@ using select_type = typename select_type_impl<Cases...>::type;
 
 template <bool Value>
 using bool_constant = std::integral_constant<bool, Value>;
+
+/**
+ * \brief Copy data from src to dest with stream ordering and synchronization
+ *
+ * Equivalent to `hipStreamMemcpyAsync(...,stream)` followed by `hipStreamSynchronize(stream)`,
+ * but is potentially more performant.
+ *
+ * \param[out] dst Destination to copy
+ * \param[in] src Source of copy
+ * \param[in] size_bytes Number of bytes to copy
+ * \param[in] kind Memory copy type
+ * \param[in] stream Stream to perform the copy. The copy is performed after all prior operations
+ * on stream have been completed.
+ * \return hipError_t error code
+ */
+inline hipError_t memcpy_and_sync(
+    void* dst, const void* src, size_t size_bytes, hipMemcpyKind kind, hipStream_t stream)
+{
+    // hipMemcpyWithStream is only supported on rocm 3.1 and above
+#if(HIP_VERSION_MAJOR == 3 && HIP_VERSION_MINOR >= 1) || HIP_VERSION_MAJOR > 3
+    return hipMemcpyWithStream(dst, src, size_bytes, kind, stream);
+#else
+    const hipError_t result = hipMemcpyAsync(dst src, size_bytes, kind, stream);
+    if(hipSuccess != result)
+    {
+        return result;
+    }
+    return hipStreamSynchronize(stream);
+#endif
+}
+
+#if __cpp_lib_as_const >= 201510L
+using ::std::as_const;
+#else
+template<typename T>
+constexpr std::add_const_t<T>& as_const(T& t) noexcept
+{
+    return t;
+}
+template<typename T>
+void as_const(const T&& t) = delete;
+#endif
+
+/// \brief Add `const` to the top level pointed to object type.
+///
+/// \tparam T type of the pointed object
+/// \param ptr the pointer to make constant
+/// \return ptr
+///
+template<typename T>
+constexpr std::add_const_t<T>* as_const_ptr(T* ptr)
+{
+    return ptr;
+}
+
+template<class... Types, class Function, size_t... Indices>
+ROCPRIM_HOST_DEVICE inline void for_each_in_tuple_impl(::rocprim::tuple<Types...>& t,
+                                                       Function                    f,
+                                                       ::rocprim::index_sequence<Indices...>)
+{
+    auto swallow = {(f(::rocprim::get<Indices>(t)), 0)...};
+    (void)swallow;
+}
+
+template<class... Types, class Function>
+ROCPRIM_HOST_DEVICE inline void for_each_in_tuple(::rocprim::tuple<Types...>& t, Function f)
+{
+    for_each_in_tuple_impl(t, f, ::rocprim::index_sequence_for<Types...>());
+}
 
 } // end namespace detail
 END_ROCPRIM_NAMESPACE

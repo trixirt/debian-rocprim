@@ -25,7 +25,10 @@
 #include <iterator>
 
 #include "../../config.hpp"
+#include "../../detail/temp_storage.hpp"
 #include "../../detail/various.hpp"
+#include "../config_types.hpp"
+#include "../device_reduce_config.hpp"
 
 #include "../../intrinsics.hpp"
 #include "../../functional.hpp"
@@ -87,15 +90,15 @@ void block_reduce_kernel_impl(InputIterator input,
                               InitValueType initial_value,
                               BinaryFunction reduce_op)
 {
-    constexpr unsigned int block_size = Config::block_size;
-    constexpr unsigned int items_per_thread = Config::items_per_thread;
+    static constexpr reduce_config_params params = device_params<Config>();
+
+    constexpr unsigned int block_size       = params.reduce_config.block_size;
+    constexpr unsigned int items_per_thread = params.reduce_config.items_per_thread;
 
     using result_type = ResultType;
 
-    using block_reduce_type = ::rocprim::block_reduce<
-        result_type, block_size,
-        Config::block_reduce_method
-    >;
+    using block_reduce_type
+        = ::rocprim::block_reduce<result_type, block_size, params.block_reduce_method>;
     constexpr unsigned int items_per_block = block_size * items_per_thread;
 
     const unsigned int flat_id = ::rocprim::detail::block_thread_id<0>();
@@ -163,20 +166,6 @@ void block_reduce_kernel_impl(InputIterator input,
             );
     }
 }
-
-// Returns size of temporary storage in bytes.
-template<class T>
-size_t reduce_get_temporary_storage_bytes(size_t input_size,
-                                          size_t items_per_block)
-{
-    if(input_size <= items_per_block)
-    {
-        return 0;
-    }
-    auto size = (input_size + items_per_block - 1)/(items_per_block);
-    return size * sizeof(T) + reduce_get_temporary_storage_bytes<T>(size, items_per_block);
-}
-
 } // end of detail namespace
 
 END_ROCPRIM_NAMESPACE

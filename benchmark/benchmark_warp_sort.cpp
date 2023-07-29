@@ -21,7 +21,7 @@
 // SOFTWARE.
 
 #include <iostream>
-#include <chrono>
+
 #include <vector>
 #include <limits>
 #include <string>
@@ -39,15 +39,6 @@
 
 #include "benchmark_utils.hpp"
 
-#define HIP_CHECK(condition)         \
-  {                                  \
-    hipError_t error = condition;    \
-    if(error != hipSuccess){         \
-        std::cout << "HIP error: " << error << " line: " << __LINE__ << std::endl; \
-        exit(error); \
-    } \
-  }
-
 #ifndef DEFAULT_N
 const size_t DEFAULT_N = 1024 * 1024 * 32;
 #endif
@@ -60,7 +51,7 @@ __launch_bounds__(BlockSize)
 void warp_sort_kernel(K* input_keys, K* output_keys)
 {
     const unsigned int flat_tid = threadIdx.x;
-    const unsigned int items_per_block = BlockSize * ItemsPerThread; 
+    const unsigned int items_per_block = BlockSize * ItemsPerThread;
     const unsigned int block_offset = blockIdx.x * items_per_block;
 
     K keys[ItemsPerThread];
@@ -78,7 +69,7 @@ __launch_bounds__(BlockSize)
 void warp_sort_by_key_kernel(K* input_keys, V* input_values, K* output_keys, V* output_values)
 {
     const unsigned int flat_tid = threadIdx.x;
-    const unsigned int items_per_block = BlockSize * ItemsPerThread; 
+    const unsigned int items_per_block = BlockSize * ItemsPerThread;
     const unsigned int block_offset = blockIdx.x * items_per_block;
 
     K keys[ItemsPerThread];
@@ -156,9 +147,16 @@ void run_benchmark(benchmark::State& state, hipStream_t stream, size_t size)
     );
     HIP_CHECK(hipDeviceSynchronize());
 
+    // HIP events creation
+    hipEvent_t start, stop;
+    HIP_CHECK(hipEventCreate(&start));
+    HIP_CHECK(hipEventCreate(&stop));
+
     for(auto _ : state)
     {
-        auto start = std::chrono::high_resolution_clock::now();
+        // Record start event
+        HIP_CHECK(hipEventRecord(start, stream));
+
         if(SortByKey)
         {
             ROCPRIM_NO_UNROLL
@@ -182,13 +180,20 @@ void run_benchmark(benchmark::State& state, hipStream_t stream, size_t size)
             }
         }
         HIP_CHECK(hipGetLastError());
-        HIP_CHECK(hipDeviceSynchronize());
 
-        auto end = std::chrono::high_resolution_clock::now();
-        auto elapsed_seconds =
-            std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-        state.SetIterationTime(elapsed_seconds.count());
+        // Record stop event and wait until it completes
+        HIP_CHECK(hipEventRecord(stop, stream));
+        HIP_CHECK(hipEventSynchronize(stop));
+
+        float elapsed_mseconds;
+        HIP_CHECK(hipEventElapsedTime(&elapsed_mseconds, start, stop));
+        state.SetIterationTime(elapsed_mseconds / 1000);
     }
+
+    // Destroy HIP events
+    HIP_CHECK(hipEventDestroy(start));
+    HIP_CHECK(hipEventDestroy(stop));
+
     // SortByKey also transfers values
     auto sorted_type_size = sizeof(Key);
     if(SortByKey) sorted_type_size += sizeof(Value);
@@ -201,19 +206,24 @@ void run_benchmark(benchmark::State& state, hipStream_t stream, size_t size)
     HIP_CHECK(hipFree(d_output_value));
 }
 
-#define CREATE_SORT_BENCHMARK(K, BS, WS, IPT) \
-    benchmark::RegisterBenchmark( \
-        "warp_sort<"#K", "#BS", "#WS", "#IPT">.sort(only keys)", \
-        run_benchmark<K, BS, WS, IPT>, \
-        stream, size \
-    )
+#define CREATE_SORT_BENCHMARK(K, BS, WS, IPT)                                        \
+    benchmark::RegisterBenchmark(                                                    \
+        bench_naming::format_name("{lvl:warp,algo:sort,key_type:" #K ",value_type:"  \
+                                  + std::string(Traits<rocprim::empty_type>::name()) \
+                                  + ",ws:" #WS ",cfg:{bs:" #BS ",ipt:" #IPT "}}")    \
+            .c_str(),                                                                \
+        run_benchmark<K, BS, WS, IPT>,                                               \
+        stream,                                                                      \
+        size)
 
-#define CREATE_SORTBYKEY_BENCHMARK(K, V, BS, WS, IPT) \
-    benchmark::RegisterBenchmark( \
-        "warp_sort<"#K", "#BS", "#WS", "#IPT", "#V">.sort", \
-        run_benchmark<K, BS, WS, IPT, V, true>, \
-        stream, size \
-    )
+#define CREATE_SORTBYKEY_BENCHMARK(K, V, BS, WS, IPT)                                         \
+    benchmark::RegisterBenchmark(bench_naming::format_name("{lvl:warp,algo:sort,key_type:" #K \
+                                                           ",value_type:" #V ",ws:" #WS       \
+                                                           ",cfg:{bs:" #BS ",ipt:" #IPT "}}") \
+                                     .c_str(),                                                \
+                                 run_benchmark<K, BS, WS, IPT, V, true>,                      \
+                                 stream,                                                      \
+                                 size)
 
 #define BENCHMARK_TYPE(type) \
     CREATE_SORT_BENCHMARK(type,  64, 64, 1), \
@@ -244,12 +254,17 @@ int main(int argc, char *argv[])
     cli::Parser parser(argc, argv);
     parser.set_optional<size_t>("size", "size", DEFAULT_N, "number of values");
     parser.set_optional<int>("trials", "trials", -1, "number of iterations");
+    parser.set_optional<std::string>("name_format",
+                                     "name_format",
+                                     "human",
+                                     "either: json,human,txt");
     parser.run_and_exit_if_error();
 
     // Parse argv
     benchmark::Initialize(&argc, argv);
     const size_t size = parser.get<size_t>("size");
     const int trials = parser.get<int>("trials");
+    bench_naming::set_format(parser.get<std::string>("name_format"));
 
     // HIP
     hipStream_t stream = 0; // default

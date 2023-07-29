@@ -28,15 +28,16 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, ReduceSum)
 {
     // logical warp side for warp primitive, execution warp size is always rocprim::warp_size()
     using T = typename TestFixture::params::type;
-     // for bfloat16 and half we use double for host-side accumulation
+    // for bfloat16 and half we use double for host-side accumulation
     using binary_op_type_host = typename test_utils::select_plus_operator_host<T>::type;
     binary_op_type_host binary_op_host;
     using acc_type = typename test_utils::select_plus_operator_host<T>::acc_type;
+    using cast_type = typename test_utils::select_plus_operator_host<T>::cast_type;
 
     static constexpr size_t logical_warp_size = TestFixture::params::warp_size;
 
     int device_id = test_common_utils::obtain_device_from_ctest();
-    SCOPED_TRACE(testing::Message() << "with device_id= " << device_id);
+    SCOPED_TRACE(testing::Message() << "with device_id = " << device_id);
     HIP_CHECK(hipSetDevice(device_id));
 
     // The different warp sizes
@@ -73,14 +74,14 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, ReduceSum)
     for (size_t seed_index = 0; seed_index < random_seeds_count + seed_size; seed_index++)
     {
         unsigned int seed_value = seed_index < random_seeds_count  ? rand() : seeds[seed_index - random_seeds_count];
-        SCOPED_TRACE(testing::Message() << "with seed= " << seed_value);
+        SCOPED_TRACE(testing::Message() << "with seed = " << seed_value);
 
         // Generate data
         std::vector<T> input = test_utils::get_random_data<T>(size, 2, 50, seed_value);
-        std::vector<T> output(input.size() / logical_warp_size, (T)0);
+        std::vector<T> output(input.size() / logical_warp_size, T(0));
 
         // Calculate expected results on host
-        std::vector<T> expected(output.size(), (T)1);
+        std::vector<T> expected(output.size(), T(1));
         for(size_t i = 0; i < output.size(); i++)
         {
             acc_type value(0);
@@ -89,7 +90,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, ReduceSum)
                 auto idx = i * logical_warp_size + j;
                 value = binary_op_host(input[idx], value);
             }
-            expected[i] = static_cast<T>(value);
+            expected[i] = static_cast<cast_type>(value);
         }
 
         T* device_input;
@@ -135,7 +136,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, ReduceSum)
             )
         );
 
-        test_utils::assert_near(output, expected, test_utils::precision_threshold<T>::percentage);
+        test_utils::assert_near(output, expected, test_utils::precision<T> * logical_warp_size);
 
         HIP_CHECK(hipFree(device_input));
         HIP_CHECK(hipFree(device_output));
@@ -145,7 +146,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, ReduceSum)
 typed_test_def(RocprimWarpReduceTests, name_suffix, AllReduceSum)
 {
     int device_id = test_common_utils::obtain_device_from_ctest();
-    SCOPED_TRACE(testing::Message() << "with device_id= " << device_id);
+    SCOPED_TRACE(testing::Message() << "with device_id = " << device_id);
     HIP_CHECK(hipSetDevice(device_id));
 
     // logical warp side for warp primitive, execution warp size is always rocprim::warp_size()
@@ -154,6 +155,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, AllReduceSum)
     using binary_op_type_host = typename test_utils::select_plus_operator_host<T>::type;
     binary_op_type_host binary_op_host;
     using acc_type = typename test_utils::select_plus_operator_host<T>::acc_type;
+    using cast_type = typename test_utils::select_plus_operator_host<T>::cast_type;
 
     static constexpr size_t logical_warp_size = TestFixture::params::warp_size;
 
@@ -191,14 +193,14 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, AllReduceSum)
     for (size_t seed_index = 0; seed_index < random_seeds_count + seed_size; seed_index++)
     {
         unsigned int seed_value = seed_index < random_seeds_count  ? rand() : seeds[seed_index - random_seeds_count];
-        SCOPED_TRACE(testing::Message() << "with seed= " << seed_value);
+        SCOPED_TRACE(testing::Message() << "with seed = " << seed_value);
 
         // Generate data
         std::vector<T> input = test_utils::get_random_data<T>(size, 2, 50, seed_value);
-        std::vector<T> output(input.size(), (T)0);
+        std::vector<T> output(input.size(), T(0));
 
         // Calculate expected results on host
-        std::vector<T> expected(output.size(), (T)0);
+        std::vector<T> expected(output.size(), T(0));
         for(size_t i = 0; i < output.size() / logical_warp_size; i++)
         {
             acc_type value(0);
@@ -210,7 +212,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, AllReduceSum)
             for (size_t j = 0; j < logical_warp_size; j++)
             {
                 auto idx = i * logical_warp_size + j;
-                expected[idx] = static_cast<T>(value);
+                expected[idx] = static_cast<cast_type>(value);
             }
         }
 
@@ -257,7 +259,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, AllReduceSum)
             )
         );
 
-        test_utils::assert_near(output, expected, test_utils::precision_threshold<T>::percentage);
+        test_utils::assert_near(output, expected, test_utils::precision<T> * logical_warp_size);
 
         HIP_CHECK(hipFree(device_input));
         HIP_CHECK(hipFree(device_output));
@@ -267,7 +269,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, AllReduceSum)
 typed_test_def(RocprimWarpReduceTests, name_suffix, ReduceSumValid)
 {
     int device_id = test_common_utils::obtain_device_from_ctest();
-    SCOPED_TRACE(testing::Message() << "with device_id= " << device_id);
+    SCOPED_TRACE(testing::Message() << "with device_id = " << device_id);
     HIP_CHECK(hipSetDevice(device_id));
 
     // logical warp side for warp primitive, execution warp size is always rocprim::warp_size()
@@ -276,6 +278,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, ReduceSumValid)
     using binary_op_type_host = typename test_utils::select_plus_operator_host<T>::type;
     binary_op_type_host binary_op_host;
     using acc_type = typename test_utils::select_plus_operator_host<T>::acc_type;
+    using cast_type = typename test_utils::select_plus_operator_host<T>::cast_type;
 
     static constexpr size_t logical_warp_size = TestFixture::params::warp_size;
 
@@ -314,14 +317,14 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, ReduceSumValid)
     for (size_t seed_index = 0; seed_index < random_seeds_count + seed_size; seed_index++)
     {
         unsigned int seed_value = seed_index < random_seeds_count  ? rand() : seeds[seed_index - random_seeds_count];
-        SCOPED_TRACE(testing::Message() << "with seed= " << seed_value);
+        SCOPED_TRACE(testing::Message() << "with seed = " << seed_value);
 
         // Generate data
         std::vector<T> input = test_utils::get_random_data<T>(size, 2, 50, seed_value);
-        std::vector<T> output(input.size() / logical_warp_size, (T)0);
+        std::vector<T> output(input.size() / logical_warp_size, T(0));
 
         // Calculate expected results on host
-        std::vector<T> expected(output.size(), (T)1);
+        std::vector<T> expected(output.size(), T(1));
         for(size_t i = 0; i < output.size(); i++)
         {
             acc_type value(0);
@@ -330,7 +333,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, ReduceSumValid)
                 auto idx = i * logical_warp_size + j;
                 value = binary_op_host(input[idx], value);
             }
-            expected[i] = static_cast<T>(value);
+            expected[i] = static_cast<cast_type>(value);
         }
 
         T* device_input;
@@ -376,7 +379,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, ReduceSumValid)
             )
         );
 
-        test_utils::assert_near(output, expected, test_utils::precision_threshold<T>::percentage);
+        test_utils::assert_near(output, expected, test_utils::precision<T> * logical_warp_size);
 
         HIP_CHECK(hipFree(device_input));
         HIP_CHECK(hipFree(device_output));
@@ -387,7 +390,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, ReduceSumValid)
 typed_test_def(RocprimWarpReduceTests, name_suffix, AllReduceSumValid)
 {
     int device_id = test_common_utils::obtain_device_from_ctest();
-    SCOPED_TRACE(testing::Message() << "with device_id= " << device_id);
+    SCOPED_TRACE(testing::Message() << "with device_id = " << device_id);
     HIP_CHECK(hipSetDevice(device_id));
 
     // logical warp side for warp primitive, execution warp size is always rocprim::warp_size()
@@ -396,6 +399,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, AllReduceSumValid)
     using binary_op_type_host = typename test_utils::select_plus_operator_host<T>::type;
     binary_op_type_host binary_op_host;
     using acc_type = typename test_utils::select_plus_operator_host<T>::acc_type;
+    using cast_type = typename test_utils::select_plus_operator_host<T>::cast_type;
 
     static constexpr size_t logical_warp_size = TestFixture::params::warp_size;
 
@@ -434,14 +438,14 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, AllReduceSumValid)
     for (size_t seed_index = 0; seed_index < random_seeds_count + seed_size; seed_index++)
     {
         unsigned int seed_value = seed_index < random_seeds_count  ? rand() : seeds[seed_index - random_seeds_count];
-        SCOPED_TRACE(testing::Message() << "with seed= " << seed_value);
+        SCOPED_TRACE(testing::Message() << "with seed = " << seed_value);
 
         // Generate data
         std::vector<T> input = test_utils::get_random_data<T>(size, 2, 50, seed_value);
-        std::vector<T> output(input.size(), (T)0);
+        std::vector<T> output(input.size(), T(0));
 
         // Calculate expected results on host
-        std::vector<T> expected(output.size(), (T)0);
+        std::vector<T> expected(output.size(), T(0));
         for(size_t i = 0; i < output.size() / logical_warp_size; i++)
         {
             acc_type value(0);
@@ -453,7 +457,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, AllReduceSumValid)
             for (size_t j = 0; j < logical_warp_size; j++)
             {
                 auto idx = i * logical_warp_size + j;
-                expected[idx] = static_cast<T>(value);
+                expected[idx] = static_cast<cast_type>(value);
             }
         }
 
@@ -500,7 +504,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, AllReduceSumValid)
             )
         );
 
-        test_utils::assert_near(output, expected, test_utils::precision_threshold<T>::percentage);
+        test_utils::assert_near(output, expected, test_utils::precision<T> * valid);
 
         HIP_CHECK(hipFree(device_input));
         HIP_CHECK(hipFree(device_output));
@@ -511,12 +515,13 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, AllReduceSumValid)
 typed_test_def(RocprimWarpReduceTests, name_suffix, ReduceCustomStruct)
 {
     int device_id = test_common_utils::obtain_device_from_ctest();
-    SCOPED_TRACE(testing::Message() << "with device_id= " << device_id);
+    SCOPED_TRACE(testing::Message() << "with device_id = " << device_id);
     HIP_CHECK(hipSetDevice(device_id));
 
     using base_type = typename TestFixture::params::type;
     using T = test_utils::custom_test_type<base_type>;
     using acc_type = typename test_utils::select_plus_operator_host<base_type>::acc_type;
+    using cast_type = typename test_utils::select_plus_operator_host<base_type>::cast_type;
 
     // logical warp side for warp primitive, execution warp size is always rocprim::warp_size()
     static constexpr size_t logical_warp_size = TestFixture::params::warp_size;
@@ -555,7 +560,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, ReduceCustomStruct)
     for (size_t seed_index = 0; seed_index < random_seeds_count + seed_size; seed_index++)
     {
         unsigned int seed_value = seed_index < random_seeds_count  ? rand() : seeds[seed_index - random_seeds_count];
-        SCOPED_TRACE(testing::Message() << "with seed= " << seed_value);
+        SCOPED_TRACE(testing::Message() << "with seed = " << seed_value);
 
         // Generate data
         std::vector<T> input(size);
@@ -580,7 +585,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, ReduceCustomStruct)
                 auto idx = i * logical_warp_size + j;
                 value = value + static_cast<test_utils::custom_test_type<acc_type>>(input[idx]);
             }
-            expected[i] = static_cast<T>(value);
+            expected[i] = static_cast<test_utils::custom_test_type<cast_type>>(value);
         }
 
         T* device_input;
@@ -626,7 +631,9 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, ReduceCustomStruct)
             )
         );
 
-        test_utils::assert_near(output, expected, test_utils::precision_threshold<base_type>::percentage);
+        test_utils::assert_near(output,
+                                expected,
+                                test_utils::precision<base_type> * logical_warp_size);
 
         HIP_CHECK(hipFree(device_input));
         HIP_CHECK(hipFree(device_output));
@@ -637,7 +644,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, ReduceCustomStruct)
 typed_test_def(RocprimWarpReduceTests, name_suffix, HeadSegmentedReduceSum)
 {
     int device_id = test_common_utils::obtain_device_from_ctest();
-    SCOPED_TRACE(testing::Message() << "with device_id= " << device_id);
+    SCOPED_TRACE(testing::Message() << "with device_id = " << device_id);
     HIP_CHECK(hipSetDevice(device_id));
 
     // logical warp side for warp primitive, execution warp size is always rocprim::warp_size()
@@ -646,6 +653,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, HeadSegmentedReduceSum)
     using binary_op_type_host = typename test_utils::select_plus_operator_host<T>::type;
     binary_op_type_host binary_op_host;
     using acc_type = typename test_utils::select_plus_operator_host<T>::acc_type;
+    using cast_type = typename test_utils::select_plus_operator_host<T>::cast_type;
 
     using flag_type = unsigned char;
     static constexpr size_t logical_warp_size = TestFixture::params::warp_size;
@@ -684,7 +692,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, HeadSegmentedReduceSum)
     for (size_t seed_index = 0; seed_index < random_seeds_count + seed_size; seed_index++)
     {
         unsigned int seed_value = seed_index < random_seeds_count  ? rand() : seeds[seed_index - random_seeds_count];
-        SCOPED_TRACE(testing::Message() << "with seed= " << seed_value);
+        SCOPED_TRACE(testing::Message() << "with seed = " << seed_value);
 
         // Generate data
         std::vector<T> input = test_utils::get_random_data<T>(size, 1, 10, seed_value);
@@ -725,7 +733,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, HeadSegmentedReduceSum)
         {
             if(i%logical_warp_size == 0 || flags[i])
             {
-                expected[segment_head_index] = static_cast<T>(reduction);
+                expected[segment_head_index] = static_cast<cast_type>(reduction);
                 segment_head_index = i;
                 reduction = input[i];
             }
@@ -734,7 +742,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, HeadSegmentedReduceSum)
                 reduction = binary_op_host(input[i], reduction);
             }
         }
-        expected[segment_head_index] = static_cast<T>(reduction);
+        expected[segment_head_index] = static_cast<cast_type>(reduction);
 
         // Launching kernel
         if (current_device_warp_size == ws32)
@@ -767,8 +775,8 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, HeadSegmentedReduceSum)
         );
         HIP_CHECK(hipDeviceSynchronize());
 
-        std::vector<T> output_segment(output.size(), (T)0);
-        std::vector<T> expected_segment(output.size(), (T)0);
+        std::vector<T> output_segment(output.size(), T(0));
+        std::vector<T> expected_segment(output.size(), T(0));
         for(size_t i = 0; i < output.size(); i++)
         {
             if(flags[i])
@@ -777,7 +785,9 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, HeadSegmentedReduceSum)
                 expected_segment[i] = expected[i];
             }
         }
-        test_utils::assert_near(output_segment, expected_segment, test_utils::precision_threshold<T>::percentage);
+        test_utils::assert_near(output_segment,
+                                expected_segment,
+                                test_utils::precision<T> * logical_warp_size);
 
         HIP_CHECK(hipFree(device_input));
         HIP_CHECK(hipFree(device_flags));
@@ -789,7 +799,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, HeadSegmentedReduceSum)
 typed_test_def(RocprimWarpReduceTests, name_suffix, TailSegmentedReduceSum)
 {
     int device_id = test_common_utils::obtain_device_from_ctest();
-    SCOPED_TRACE(testing::Message() << "with device_id= " << device_id);
+    SCOPED_TRACE(testing::Message() << "with device_id = " << device_id);
     HIP_CHECK(hipSetDevice(device_id));
 
     // logical warp side for warp primitive, execution warp size is always rocprim::warp_size()
@@ -798,6 +808,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, TailSegmentedReduceSum)
     using binary_op_type_host = typename test_utils::select_plus_operator_host<T>::type;
     binary_op_type_host binary_op_host;
     using acc_type = typename test_utils::select_plus_operator_host<T>::acc_type;
+    using cast_type = typename test_utils::select_plus_operator_host<T>::cast_type;
 
     using flag_type = unsigned char;
     static constexpr size_t logical_warp_size = TestFixture::params::warp_size;
@@ -836,7 +847,7 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, TailSegmentedReduceSum)
     for (size_t seed_index = 0; seed_index < random_seeds_count + seed_size; seed_index++)
     {
         unsigned int seed_value = seed_index < random_seeds_count  ? rand() : seeds[seed_index - random_seeds_count];
-        SCOPED_TRACE(testing::Message() << "with seed= " << seed_value);
+        SCOPED_TRACE(testing::Message() << "with seed = " << seed_value);
 
         // Generate data
         std::vector<T> input = test_utils::get_random_data<T>(size, 1, 10, seed_value);
@@ -894,7 +905,8 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, TailSegmentedReduceSum)
                     next++;
                 }
                 i++;
-                expected[segment_index] = static_cast<T>(binary_op_host(reduction, input[i]));
+                expected[segment_index]
+                    = static_cast<cast_type>(binary_op_host(reduction, input[i]));
                 segment_indexes.push_back(segment_index);
             }
         }
@@ -938,7 +950,9 @@ typed_test_def(RocprimWarpReduceTests, name_suffix, TailSegmentedReduceSum)
             output_segment[i] = output[index];
             expected_segment[i] = expected[index];
         }
-        test_utils::assert_near(output_segment, expected_segment, test_utils::precision_threshold<T>::percentage);
+        test_utils::assert_near(output_segment,
+                                expected_segment,
+                                test_utils::precision<T> * logical_warp_size);
 
         HIP_CHECK(hipFree(device_input));
         HIP_CHECK(hipFree(device_flags));

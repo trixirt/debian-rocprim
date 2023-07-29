@@ -156,8 +156,8 @@ auto test_block_radix_sort()
     static constexpr size_t items_per_thread = ItemsPerThread;
     static constexpr bool descending = Descending;
     static constexpr bool to_striped = ToStriped;
-    static constexpr unsigned int start_bit = (rocprim::is_unsigned<Key>::value == false) ? 0 : StartBit;
-    static constexpr unsigned int end_bit = (rocprim::is_unsigned<Key>::value == false) ? sizeof(Key) * 8 : EndBit;
+    static constexpr unsigned int start_bit        = StartBit;
+    static constexpr unsigned int end_bit          = EndBit;
     static constexpr size_t items_per_block = block_size * items_per_thread;
 
     // Given block size not supported
@@ -172,7 +172,7 @@ auto test_block_radix_sort()
     for (size_t seed_index = 0; seed_index < random_seeds_count + seed_size; seed_index++)
     {
         unsigned int seed_value = seed_index < random_seeds_count  ? rand() : seeds[seed_index - random_seeds_count];
-        SCOPED_TRACE(testing::Message() << "with seed= " << seed_value);
+        SCOPED_TRACE(testing::Message() << "with seed = " << seed_value);
 
         // Generate data
         std::vector<key_type> keys_output;
@@ -273,7 +273,7 @@ auto test_block_radix_sort()
     for (size_t seed_index = 0; seed_index < random_seeds_count + seed_size; seed_index++)
     {
         seed_type seed_value = seed_index < random_seeds_count ? rand() : seeds[seed_index - random_seeds_count];
-        SCOPED_TRACE(testing::Message() << "with seed= " << seed_value);
+        SCOPED_TRACE(testing::Message() << "with seed = " << seed_value);
 
         // Generate data
         std::vector<key_type> keys_output;

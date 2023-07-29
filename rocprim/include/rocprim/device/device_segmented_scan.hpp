@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2021 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -21,8 +21,9 @@
 #ifndef ROCPRIM_DEVICE_DEVICE_SEGMENTED_SCAN_HPP_
 #define ROCPRIM_DEVICE_DEVICE_SEGMENTED_SCAN_HPP_
 
-#include <type_traits>
+#include <iostream>
 #include <iterator>
+#include <type_traits>
 
 #include "../config.hpp"
 #include "../detail/various.hpp"
@@ -34,9 +35,9 @@
 #include "../iterator/counting_iterator.hpp"
 #include "../types/tuple.hpp"
 
-#include "device_scan_config.hpp"
-#include "device_scan.hpp"
+#include "detail/config/device_scan.hpp"
 #include "detail/device_segmented_scan.hpp"
+#include "device_scan.hpp"
 
 BEGIN_ROCPRIM_NAMESPACE
 

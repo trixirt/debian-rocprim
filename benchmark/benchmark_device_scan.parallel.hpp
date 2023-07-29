@@ -46,33 +46,30 @@ template<bool ByKey                    = false,
          class Config = rocprim::detail::default_scan_config<ROCPRIM_TARGET_ARCH, T>>
 struct device_scan_benchmark : public config_autotune_interface
 {
-    static std::string get_name_pattern()
-    {
-        return R"---((?P<algo>\S*)\<)---"
-               R"---((?P<datatype>\S*),\s*(?:(?P<max_segment_len>\S*),\s*)?scan_config\<)---"
-               R"---(\s*(?P<block_size>[0-9]+),\s*(?P<items_per_thread>[0-9]+),\s*(?P<block_scan_algo>\S*)\>\>)---";
-    }
-
     static const char* get_block_scan_method_name(rocprim::block_scan_algorithm alg)
     {
         switch(alg)
         {
-            case rocprim::block_scan_algorithm::using_warp_scan: return "using_warp_scan";
-            case rocprim::block_scan_algorithm::reduce_then_scan: return "reduce_then_scan";
-            default: return "unknown_algorithm";
+            case rocprim::block_scan_algorithm::using_warp_scan:
+                return "block_scan_algorithm::using_warp_scan";
+            case rocprim::block_scan_algorithm::reduce_then_scan:
+                return "block_scan_algorithm::reduce_then_scan";
+                // Not using `default: ...` because it kills effectiveness of -Wswitch
         }
+        return "unknown_algorithm";
     }
 
     std::string name() const override
     {
         using namespace std::string_literals;
-        return std::string(
-            "device_scan_" + (ByKey ? "by_key_"s : ""s) + (Exclusive ? "exclusive"s : "inclusive"s)
-            + "<" + std::string(Traits<T>::name()) + ", "
-            + (ByKey ? (pad_string(std::to_string(MaxSegmentLength), 5) + ", ") : ""s)
-            + "scan_config<" + pad_string(std::to_string(Config::block_size), 3) + ", "
-            + pad_string(std::to_string(Config::items_per_thread), 2) + ", "
-            + std::string(get_block_scan_method_name(Config::block_scan_method)) + ">>");
+        return bench_naming::format_name(
+            "{lvl:device,algo:scan" + (Exclusive ? "_exclusive"s : "_inclusive"s)
+            + ",key_type:" + std::string(Traits<T>::name()) + ",value_type:"
+            + std::string(ByKey ? Traits<T>::name() : Traits<rocprim::empty_type>::name())
+            + ",max_segment_length:" + std::to_string(MaxSegmentLength)
+            + ",cfg:{bs:" + std::to_string(Config::block_size)
+            + ",ipt:" + std::to_string(Config::items_per_thread) + ",method:"
+            + std::string(get_block_scan_method_name(Config::block_scan_method)) + "}}");
     }
 
     template<bool excl = Exclusive>
@@ -217,10 +214,17 @@ struct device_scan_benchmark : public config_autotune_interface
         }
         HIP_CHECK(hipDeviceSynchronize());
 
+        // HIP events creation
+        hipEvent_t start, stop;
+        HIP_CHECK(hipEventCreate(&start));
+        HIP_CHECK(hipEventCreate(&stop));
+
         const unsigned int batch_size = 10;
         for(auto _ : state)
         {
-            auto start = std::chrono::high_resolution_clock::now();
+            // Record start event
+            HIP_CHECK(hipEventRecord(start, stream));
+
             for(size_t i = 0; i < batch_size; i++)
             {
                 HIP_CHECK((run_device_scan(d_temp_storage,
@@ -232,13 +236,20 @@ struct device_scan_benchmark : public config_autotune_interface
                                            scan_op,
                                            stream)));
             }
-            HIP_CHECK(hipStreamSynchronize(stream));
 
-            auto end = std::chrono::high_resolution_clock::now();
-            auto elapsed_seconds
-                = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-            state.SetIterationTime(elapsed_seconds.count());
+            // Record stop event and wait until it completes
+            HIP_CHECK(hipEventRecord(stop, stream));
+            HIP_CHECK(hipEventSynchronize(stop));
+
+            float elapsed_mseconds;
+            HIP_CHECK(hipEventElapsedTime(&elapsed_mseconds, start, stop));
+            state.SetIterationTime(elapsed_mseconds / 1000);
         }
+
+        // Destroy HIP events
+        HIP_CHECK(hipEventDestroy(start));
+        HIP_CHECK(hipEventDestroy(stop));
+
         state.SetBytesProcessed(state.iterations() * batch_size * size * sizeof(T));
         state.SetItemsProcessed(state.iterations() * batch_size * size);
 
@@ -308,10 +319,17 @@ struct device_scan_benchmark : public config_autotune_interface
         }
         HIP_CHECK(hipDeviceSynchronize());
 
+        // HIP events creation
+        hipEvent_t start, stop;
+        HIP_CHECK(hipEventCreate(&start));
+        HIP_CHECK(hipEventCreate(&stop));
+
         const unsigned int batch_size = 10;
         for(auto _ : state)
         {
-            const auto start = std::chrono::high_resolution_clock::now();
+            // Record start event
+            HIP_CHECK(hipEventRecord(start, stream));
+
             for(size_t i = 0; i < batch_size; i++)
             {
                 HIP_CHECK((run_device_scan_by_key<K, CompareFunction>(d_temp_storage,
@@ -326,14 +344,20 @@ struct device_scan_benchmark : public config_autotune_interface
                                                                       stream,
                                                                       debug)));
             }
-            HIP_CHECK(hipStreamSynchronize(stream));
 
-            using seconds_d = std::chrono::duration<double>;
+            // Record stop event and wait until it completes
+            HIP_CHECK(hipEventRecord(stop, stream));
+            HIP_CHECK(hipEventSynchronize(stop));
 
-            const auto end             = std::chrono::high_resolution_clock::now();
-            const auto elapsed_seconds = std::chrono::duration_cast<seconds_d>(end - start);
-            state.SetIterationTime(elapsed_seconds.count());
+            float elapsed_mseconds;
+            HIP_CHECK(hipEventElapsedTime(&elapsed_mseconds, start, stop));
+            state.SetIterationTime(elapsed_mseconds / 1000);
         }
+
+        // Destroy HIP events
+        HIP_CHECK(hipEventDestroy(start));
+        HIP_CHECK(hipEventDestroy(stop));
+
         state.SetBytesProcessed(state.iterations() * batch_size * size * sizeof(T));
         state.SetItemsProcessed(state.iterations() * batch_size * size);
 

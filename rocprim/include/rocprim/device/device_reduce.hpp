@@ -21,16 +21,21 @@
 #ifndef ROCPRIM_DEVICE_DEVICE_REDUCE_HPP_
 #define ROCPRIM_DEVICE_DEVICE_REDUCE_HPP_
 
-#include <type_traits>
-#include <iterator>
 #include <algorithm>
+#include <iostream>
+#include <iterator>
+#include <type_traits>
+
+#include "config_types.hpp"
 
 #include "../config.hpp"
-#include "../detail/various.hpp"
 #include "../detail/match_result_type.hpp"
+#include "../detail/temp_storage.hpp"
+#include "../detail/various.hpp"
 
-#include "device_reduce_config.hpp"
+#include "detail/device_config_helper.hpp"
 #include "detail/device_reduce.hpp"
+#include "device_reduce_config.hpp"
 
 BEGIN_ROCPRIM_NAMESPACE
 
@@ -40,22 +45,20 @@ BEGIN_ROCPRIM_NAMESPACE
 namespace detail
 {
 
-template<
-    bool WithInitialValue,
-    class Config,
-    class ResultType,
-    class InputIterator,
-    class OutputIterator,
-    class InitValueType,
-    class BinaryFunction
->
+template<bool WithInitialValue,
+         class Config,
+         class ResultType,
+         class InputIterator,
+         class OutputIterator,
+         class InitValueType,
+         class BinaryFunction>
 ROCPRIM_KERNEL
-__launch_bounds__(ROCPRIM_DEFAULT_MAX_BLOCK_SIZE)
-void block_reduce_kernel(InputIterator input,
-                         const size_t size,
-                         OutputIterator output,
-                         InitValueType initial_value,
-                         BinaryFunction reduce_op)
+    __launch_bounds__(device_params<Config>().reduce_config.block_size) void block_reduce_kernel(
+        InputIterator  input,
+        const size_t   size,
+        OutputIterator output,
+        InitValueType  initial_value,
+        BinaryFunction reduce_op)
 {
     block_reduce_kernel_impl<WithInitialValue, Config, ResultType>(
         input, size, output, initial_value, reduce_op
@@ -113,31 +116,65 @@ hipError_t reduce_impl(void * temporary_storage,
         input_type, BinaryFunction
     >::type;
 
-    // Get default config if Config is default_config
-    using config = default_or_custom_config<
-        Config,
-        default_reduce_config<ROCPRIM_TARGET_ARCH, result_type>
-    >;
+    using config = wrapped_reduce_config<Config, result_type>;
 
-    constexpr unsigned int block_size = config::block_size;
-    constexpr unsigned int items_per_thread = config::items_per_thread;
-    constexpr auto items_per_block = block_size * items_per_thread;
-
-    if(temporary_storage == nullptr)
+    detail::target_arch target_arch;
+    hipError_t          result = host_target_arch(stream, target_arch);
+    if(result != hipSuccess)
     {
-        storage_size = reduce_get_temporary_storage_bytes<result_type>(size, items_per_block);
-        // Make sure user won't try to allocate 0 bytes memory
-        storage_size = storage_size == 0 ? 4 : storage_size;
-        return hipSuccess;
+        return result;
+    }
+    const reduce_config_params params = dispatch_target_arch<config>(target_arch);
+
+    const unsigned int block_size       = params.reduce_config.block_size;
+    const unsigned int items_per_thread = params.reduce_config.items_per_thread;
+    const auto         items_per_block  = block_size * items_per_thread;
+
+    const size_t number_of_blocks  = (size + items_per_block - 1) / items_per_block;
+    const size_t block_prefix_size = size <= items_per_block ? 0 : number_of_blocks;
+
+    // Pointer to array with block_prefixes
+    result_type* block_prefixes{};
+    void*        nested_temp_storage{};
+
+    size_t nested_temp_storage_size = 0;
+    if(number_of_blocks > 1)
+    {
+        const hipError_t nested_result
+            = reduce_impl<WithInitialValue, Config>(nullptr,
+                                                    nested_temp_storage_size,
+                                                    block_prefixes, // input
+                                                    output, // output
+                                                    initial_value,
+                                                    number_of_blocks, // input size
+                                                    reduce_op,
+                                                    stream,
+                                                    debug_synchronous);
+        if(nested_result != hipSuccess)
+        {
+            return nested_result;
+        }
+    }
+
+    const hipError_t partition_result = detail::temp_storage::partition(
+        temporary_storage,
+        storage_size,
+        detail::temp_storage::make_linear_partition(
+            detail::temp_storage::ptr_aligned_array(&block_prefixes, block_prefix_size),
+            detail::temp_storage::make_partition(&nested_temp_storage,
+                                                 nested_temp_storage_size,
+                                                 alignof(result_type))));
+    if(partition_result != hipSuccess || temporary_storage == nullptr)
+    {
+        return partition_result;
     }
 
     // Start point for time measurements
     std::chrono::high_resolution_clock::time_point start;
 
-    static constexpr auto size_limit             = config::size_limit;
-    static constexpr auto number_of_blocks_limit = ::rocprim::max<size_t>(size_limit / items_per_block, 1);
+    const auto size_limit             = params.reduce_config.size_limit;
+    const auto number_of_blocks_limit = ::rocprim::max<size_t>(size_limit / items_per_block, 1);
 
-    auto number_of_blocks = (size + items_per_block - 1)/items_per_block;
     if(debug_synchronous)
     {
         std::cout << "block_size " << block_size << '\n';
@@ -148,9 +185,7 @@ hipError_t reduce_impl(void * temporary_storage,
 
     if(number_of_blocks > 1)
     {
-        // Pointer to array with block_prefixes
-        result_type * block_prefixes = static_cast<result_type*>(temporary_storage);
-        static constexpr auto aligned_size_limit = number_of_blocks_limit * items_per_block;
+        const auto    aligned_size_limit = number_of_blocks_limit * items_per_block;
 
         // Launch number_of_blocks_limit blocks while there is still at least as many blocks left as the limit
         const auto number_of_launch = (size + aligned_size_limit - 1) / aligned_size_limit;
@@ -173,21 +208,16 @@ hipError_t reduce_impl(void * temporary_storage,
             ROCPRIM_DETAIL_HIP_SYNC_AND_RETURN_ON_ERROR("block_reduce_kernel", current_size, start);
         }
 
-        void * nested_temp_storage = static_cast<void*>(block_prefixes + number_of_blocks);
-        auto nested_temp_storage_size = storage_size - (number_of_blocks * sizeof(result_type));
-
         if(debug_synchronous) start = std::chrono::high_resolution_clock::now();
-        auto error = reduce_impl<WithInitialValue, config>(
-            nested_temp_storage,
-            nested_temp_storage_size,
-            block_prefixes, // input
-            output, // output
-            initial_value,
-            number_of_blocks, // input size
-            reduce_op,
-            stream,
-            debug_synchronous
-        );
+        auto error = reduce_impl<WithInitialValue, Config>(nested_temp_storage,
+                                                           nested_temp_storage_size,
+                                                           block_prefixes, // input
+                                                           output, // output
+                                                           initial_value,
+                                                           number_of_blocks, // input size
+                                                           reduce_op,
+                                                           stream,
+                                                           debug_synchronous);
         if(error != hipSuccess) return error;
         ROCPRIM_DETAIL_HIP_SYNC("nested_device_reduce", number_of_blocks, start);
     }

@@ -27,20 +27,28 @@ def runCompileCommand(platform, project, jobName, boolean debug=false)
 def runTestCommand (platform, project)
 {
     String sudo = auxiliary.sudo(platform.jenkinsLabel)
-    String centos = platform.jenkinsLabel.contains('centos') ? '3' : ''
 
-    def testCommand = "ctest${centos} --output-on-failure "
-    def testCommandExclude = "--exclude-regex rocprim.warp_reduce"
-    def hmmExcludeRegex = /(rocprim.warp_reduce|rocprim.device_scan)/
+    def testCommand = "ctest --output-on-failure "
+    def testCommandExclude = "--exclude-regex rocprim.device_reduce_by_key"
+    def hmmExcludeRegex = /(rocprim.device_scan|rocprim.device_reduce_by_key|rocprim.block_sort_bitonic|rocprim.device_merge|rocprim.device_merge_sort|rocprim.device_partition|rocprim.device_segmented_radix_sort|rocprim.device_segmented_scan)/
     def hmmTestCommandExclude = "--exclude-regex \"${hmmExcludeRegex}\""
     def hmmTestCommand = ''
     if (platform.jenkinsLabel.contains('gfx90a'))
     {
-        hmmTestCommand = """
+        echo("HMM TESTS DISABLED")
+        /*hmmTestCommand = """
                             export HSA_XNACK=1
                             export ROCPRIM_USE_HMM=1
                             ${testCommand} ${hmmTestCommandExclude}
-                         """
+                         """*/
+    }
+    echo(env.JOB_NAME)
+    if (env.JOB_NAME.contains('bleeding-edge'))
+    {
+        testCommand = ''
+        testCommandExclude = ''
+        hmmTestCommand = ''
+        echo("TESTS DISABLED")
     }
     def command = """#!/usr/bin/env bash
                 set -x

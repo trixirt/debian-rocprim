@@ -2,6 +2,34 @@
 
 Full documentation for rocPRIM is available at [https://codedocs.xyz/ROCmSoftwarePlatform/rocPRIM/](https://codedocs.xyz/ROCmSoftwarePlatform/rocPRIM/)
 
+## [rocPRIM-2.13.0 for ROCm 5.5.0]
+### Added
+- New block level `radix_rank` primitive.
+- New block level `radix_rank_match` primitive.
+### Changed
+- Improved the performance of `block_radix_sort` and `device_radix_sort`.
+### Known Issues
+- Disabled GPU error messages relating to incorrect warp operation usage with Navi GPUs on Windows, due to GPU printf performance issues on Windows. 
+### Fixed
+- Fixed benchmark build on Windows
+
+## [rocPRIM-2.12.0 for ROCm 5.4.0]
+### Changed
+- `device_partition`, `device_unique`, and `device_reduce_by_key` now support problem
+  sizes larger than 2^32 items.
+- Device algorithms now return `hipErrorInvalidValue` if the amount of passed temporary memory is insufficient.
+- Lists of sizes for tests are unified, restored scan/reduce tests for `half` and `bfloat16` values.
+### Removed
+- `block_sort::sort()` overload for keys and values with a dynamic size. This overload was documented but the
+  implementation is missing. To avoid further confusion the documentation is removed until a decision is made on
+  implementing the function.
+### Fixed
+- Fixed the compilation failure in `device_merge` if the two key iterators don't match.
+
+## [rocPRIM-2.11.1 for ROCm 5.3.3]
+### Fixed
+- Fixed the compilation failure in device_merge if the two key iterators don't match.
+
 ## [rocPRIM-2.11.0 for ROCm 5.3.2]
 ### Known Issue
 - device_merge no longer correctly supports using different types for `keys_input1` and `keys_input2` (starting from the 5.3.0 release).
@@ -16,19 +44,21 @@ Full documentation for rocPRIM is available at [https://codedocs.xyz/ROCmSoftwar
 - CMake functionality to improve build parallelism of the test suite that splits compilation units by
 function or by parameters.
 - Reverse iterator.
+- Support for problem sizes over `UINT_MAX` in device functions `inclusive_scan_by_key` and `exclusive_scan_by_key`.
 ## Changed
 - Improved the performance of warp primitives using the swizzle operation on Navi
 - Improved build parallelism of the test suite by splitting up large compilation units
-- `device_select` now supports problem sizes larger than 2^32 items
+- `device_select` now supports problem sizes larger than 2^32 items.
 - `device_segmented_radix_sort` now partitions segments to groups small, medium and large segments.
   Each segment group can be sorted by specialized kernels to improve throughput.
+- Improved performance of histogram for the case of highly uneven sample distribution.
 
 ## [rocPRIM-2.10.14 for ROCm 5.2.0]
 ### Added
 - Packages for tests and benchmark executable on all supported OSes using CPack.
 - Added File/Folder Reorg Changes and Enabled Backward compatibility support using wrapper headers.
 
-## [rocPRIM-2.10.13 for ROCm 5.1.0]
+## [Released rocPRIM-2.10.13 for ROCm 5.1.0]
 ### Fixed
 - Fixed radix sort int64_t bug introduced in [2.10.11]
 ### Added
@@ -47,7 +77,7 @@ function or by parameters.
 ### Known issues
 - device_segmented_radix_sort unit test failing for HIP on Windows
 
-## [rocPRIM-2.10.12 for ROCm 5.0.0]
+## [Released rocPRIM-2.10.12 for ROCm 5.0.0]
 ### Fixed
 - Enable bfloat16 tests and reduce threshold for bfloat16
 - Fix device scan limit_size feature
