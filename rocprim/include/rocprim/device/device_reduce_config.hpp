@@ -1,4 +1,4 @@
-// Copyright (c) 2018-2019 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2018-2022 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -21,91 +21,52 @@
 #ifndef ROCPRIM_DEVICE_DEVICE_REDUCE_CONFIG_HPP_
 #define ROCPRIM_DEVICE_DEVICE_REDUCE_CONFIG_HPP_
 
-#include <type_traits>
-
-#include "../config.hpp"
-#include "../detail/various.hpp"
-
 #include "../block/block_reduce.hpp"
-
 #include "config_types.hpp"
-#include "detail/device_config_helper.hpp"
+#include "detail/config/device_reduce.hpp"
 
 /// \addtogroup primitivesmodule_deviceconfigs
 /// @{
 
 BEGIN_ROCPRIM_NAMESPACE
 
-
 namespace detail
 {
 
-template<class Value>
-struct reduce_config_803
+template<typename ReduceConfig, typename>
+struct wrapped_reduce_config
 {
-    static constexpr unsigned int item_scale =
-        ::rocprim::detail::ceiling_div<unsigned int>(sizeof(Value), sizeof(int));
-
-    using type = reduce_config<
-        limit_block_size<256U, sizeof(Value), ROCPRIM_WARP_SIZE_64>::value,
-        ::rocprim::max(1u, 16u / item_scale),
-        ::rocprim::block_reduce_algorithm::using_warp_reduce
-    >;
+    template<target_arch Arch>
+    struct architecture_config
+    {
+        static constexpr reduce_config_params params = ReduceConfig();
+    };
 };
 
-template<class Value>
-struct reduce_config_900
+template<typename Value>
+struct wrapped_reduce_config<default_config, Value>
 {
-    static constexpr unsigned int item_scale =
-        ::rocprim::detail::ceiling_div<unsigned int>(sizeof(Value), sizeof(int));
-
-    using type = reduce_config<
-        limit_block_size<256U, sizeof(Value), ROCPRIM_WARP_SIZE_64>::value,
-        ::rocprim::max(1u, 16u / item_scale),
-        ::rocprim::block_reduce_algorithm::using_warp_reduce
-    >;
+    template<target_arch Arch>
+    struct architecture_config
+    {
+        static constexpr reduce_config_params params
+            = default_reduce_config<static_cast<unsigned int>(Arch), Value>();
+    };
 };
 
-// TODO: We need to update these parameters
-template<class Value>
-struct reduce_config_90a
-{
-    static constexpr unsigned int item_scale =
-        ::rocprim::detail::ceiling_div<unsigned int>(sizeof(Value), sizeof(int));
+#ifndef DOXYGEN_SHOULD_SKIP_THIS
+template<typename ReduceConfig, typename Value>
+template<target_arch Arch>
+constexpr reduce_config_params
+    wrapped_reduce_config<ReduceConfig, Value>::architecture_config<Arch>::params;
 
-    using type = reduce_config<
-        limit_block_size<256U, sizeof(Value), ROCPRIM_WARP_SIZE_64>::value,
-        ::rocprim::max(1u, 16u / item_scale),
-        ::rocprim::block_reduce_algorithm::using_warp_reduce
-    >;
-};
+template<typename Value>
+template<target_arch Arch>
+constexpr reduce_config_params
+    wrapped_reduce_config<default_config, Value>::architecture_config<Arch>::params;
+#endif // DOXYGEN_SHOULD_SKIP_THIS
 
-// TODO: We need to update these parameters
-template<class Value>
-struct reduce_config_1030
-{
-    static constexpr unsigned int item_scale =
-        ::rocprim::detail::ceiling_div<unsigned int>(sizeof(Value), sizeof(int));
-
-    using type = reduce_config<
-        limit_block_size<256U, sizeof(Value), ROCPRIM_WARP_SIZE_32>::value,
-        ::rocprim::max(1u, 16u / item_scale),
-        ::rocprim::block_reduce_algorithm::using_warp_reduce
-    >;
-};
-
-template<unsigned int TargetArch, class Value>
-struct default_reduce_config
-    : select_arch<
-        TargetArch,
-        select_arch_case<803, reduce_config_803<Value>>,
-        select_arch_case<900, reduce_config_900<Value>>,
-        select_arch_case<ROCPRIM_ARCH_90a, reduce_config_90a<Value>>,
-        select_arch_case<1030, reduce_config_1030<Value>>,
-        reduce_config_900<Value>
-    > { };
-
-} // end namespace detail
+} // namespace detail
 
 END_ROCPRIM_NAMESPACE
 

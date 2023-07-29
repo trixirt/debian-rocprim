@@ -20,14 +20,38 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include <cstdint>
+#include "../common_test_header.hpp"
 
-#include "benchmark_utils.hpp"
-#include "benchmark_device_merge_sort.parallel.hpp"
+// required rocprim headers
+#include <rocprim/block/block_load.hpp>
+#include <rocprim/block/block_sort.hpp>
+#include <rocprim/block/block_store.hpp>
 
-namespace { 
-    auto benchmarks = config_autotune_register::create_bulk(
-        device_merge_sort_benchmark_generator<@MergeBlockSizeExponent@, 
-                                              @SortBlockSizeExponent@,
-                                              @KeyType_ValueType@>::create);    
-}
+// required test headers
+#include "test_utils_types.hpp"
+
+// kernel definitions
+#include "test_block_sort.kernels.hpp"
+
+// Start stamping out tests
+struct RocprimBlockSortMergeTests;
+#ifndef TEST_BLOCK_SORT_ALGORITHM
+    #define TEST_BLOCK_SORT_ALGORITHM rocprim::block_sort_algorithm::merge_sort
+#endif
+struct Integral;
+#define suite_name RocprimBlockSortMergeTests
+#define block_params BlockParamsIntegral
+#define name_suffix Integral
+
+#include "test_block_sort.hpp"
+
+#undef suite_name
+#undef block_params
+#undef name_suffix
+
+struct Floating;
+#define suite_name RocprimBlockSortMergeTests
+#define block_params BlockParamsFloating
+#define name_suffix Floating
+
+#include "test_block_sort.hpp"

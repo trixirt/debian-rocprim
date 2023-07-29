@@ -21,7 +21,7 @@
 // SOFTWARE.
 
 #include <iostream>
-#include <chrono>
+
 #include <vector>
 #include <limits>
 #include <string>
@@ -39,15 +39,6 @@
 
 // rocPRIM
 #include <rocprim/rocprim.hpp>
-
-#define HIP_CHECK(condition)         \
-  {                                  \
-    hipError_t error = condition;    \
-    if(error != hipSuccess){         \
-        std::cout << "HIP error: " << error << " line: " << __LINE__ << std::endl; \
-        exit(error); \
-    } \
-  }
 
 #ifndef DEFAULT_N
 const size_t DEFAULT_N = 1024 * 1024 * 32;
@@ -186,19 +177,35 @@ void run_benchmark(benchmark::State& state, hipStream_t stream, size_t N)
     );
     HIP_CHECK(hipDeviceSynchronize());
 
+    // HIP events creation
+    hipEvent_t start, stop;
+    HIP_CHECK(hipEventCreate(&start));
+    HIP_CHECK(hipEventCreate(&stop));
+
     for(auto _ : state)
     {
-        auto start = std::chrono::high_resolution_clock::now();
-        execute_warp_reduce_kernel<AllReduce, Segmented, WarpSize, BlockSize, Trials>(
-            d_input, d_output, d_flags, size, stream
-        );
-        HIP_CHECK(hipDeviceSynchronize());
+        // Record start event
+        HIP_CHECK(hipEventRecord(start, stream));
 
-        auto end = std::chrono::high_resolution_clock::now();
-        auto elapsed_seconds =
-            std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-        state.SetIterationTime(elapsed_seconds.count());
+        execute_warp_reduce_kernel<AllReduce, Segmented, WarpSize, BlockSize, Trials>(d_input,
+                                                                                      d_output,
+                                                                                      d_flags,
+                                                                                      size,
+                                                                                      stream);
+
+        // Record stop event and wait until it completes
+        HIP_CHECK(hipEventRecord(stop, stream));
+        HIP_CHECK(hipEventSynchronize(stop));
+
+        float elapsed_mseconds;
+        HIP_CHECK(hipEventElapsedTime(&elapsed_mseconds, start, stop));
+        state.SetIterationTime(elapsed_mseconds / 1000);
     }
+
+    // Destroy HIP events
+    HIP_CHECK(hipEventDestroy(start));
+    HIP_CHECK(hipEventDestroy(stop));
+
     state.SetBytesProcessed(state.iterations() * Trials * size * sizeof(T));
     state.SetItemsProcessed(state.iterations() * Trials * size);
 
@@ -207,12 +214,16 @@ void run_benchmark(benchmark::State& state, hipStream_t stream, size_t N)
     HIP_CHECK(hipFree(d_flags));
 }
 
-#define CREATE_BENCHMARK(T, WS, BS) \
-benchmark::RegisterBenchmark( \
-    (std::string("warp_reduce<" #T ", " #WS ", " #BS ">.") + name).c_str(), \
-    run_benchmark<AllReduce, Segmented, T, WS, BS>, \
-    stream, size \
-)
+#define CREATE_BENCHMARK(T, WS, BS)                                                           \
+    benchmark::RegisterBenchmark(                                                             \
+        bench_naming::format_name("{lvl:warp,algo:reduce,key_type:" #T ",broadcast_result:"   \
+                                  + std::string(AllReduce ? "true" : "false")                 \
+                                  + ",segmented:" + std::string(Segmented ? "true" : "false") \
+                                  + ",ws:" #WS ",cfg:{bs:" #BS "}}")                          \
+            .c_str(),                                                                         \
+        run_benchmark<AllReduce, Segmented, T, WS, BS>,                                       \
+        stream,                                                                               \
+        size)
 
 #define BENCHMARK_TYPE(type) \
     CREATE_BENCHMARK(type, 32, 64), \
@@ -221,10 +232,9 @@ benchmark::RegisterBenchmark( \
     CREATE_BENCHMARK(type, 64, 64)
 
 template<bool AllReduce, bool Segmented>
-void add_benchmarks(const std::string& name,
-                    std::vector<benchmark::internal::Benchmark*>& benchmarks,
-                    hipStream_t stream,
-                    size_t size)
+void add_benchmarks(std::vector<benchmark::internal::Benchmark*>& benchmarks,
+                    hipStream_t                                   stream,
+                    size_t                                        size)
 {
     std::vector<benchmark::internal::Benchmark*> bs =
     {
@@ -244,12 +254,17 @@ int main(int argc, char *argv[])
     cli::Parser parser(argc, argv);
     parser.set_optional<size_t>("size", "size", DEFAULT_N, "number of values");
     parser.set_optional<int>("trials", "trials", -1, "number of iterations");
+    parser.set_optional<std::string>("name_format",
+                                     "name_format",
+                                     "human",
+                                     "either: json,human,txt");
     parser.run_and_exit_if_error();
 
     // Parse argv
     benchmark::Initialize(&argc, argv);
     const size_t size = parser.get<size_t>("size");
     const int trials = parser.get<int>("trials");
+    bench_naming::set_format(parser.get<std::string>("name_format"));
 
     // HIP
     hipStream_t stream = 0; // default
@@ -260,9 +275,9 @@ int main(int argc, char *argv[])
 
     // Add benchmarks
     std::vector<benchmark::internal::Benchmark*> benchmarks;
-    add_benchmarks<false, false>("reduce", benchmarks, stream, size);
-    add_benchmarks<true, false>("all_reduce", benchmarks, stream, size);
-    add_benchmarks<false, true>("segmented_reduce", benchmarks, stream, size);
+    add_benchmarks<false, false>(benchmarks, stream, size);
+    add_benchmarks<true, false>(benchmarks, stream, size);
+    add_benchmarks<false, true>(benchmarks, stream, size);
 
     // Use manual timing
     for(auto& b : benchmarks)

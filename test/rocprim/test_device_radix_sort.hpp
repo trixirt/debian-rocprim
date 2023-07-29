@@ -23,12 +23,13 @@
 #ifndef TEST_DEVICE_RADIX_SORT_HPP_
 #define TEST_DEVICE_RADIX_SORT_HPP_
 
-#include "common_test_header.hpp"
+#include "../common_test_header.hpp"
 
 // required rocprim headers
 #include <rocprim/device/device_radix_sort.hpp>
 
 // required test headers
+#include "test_utils_custom_float_type.hpp"
 #include "test_utils_sort_comparator.hpp"
 #include "test_utils_types.hpp"
 
@@ -57,21 +58,11 @@ public:
 
 TYPED_TEST_SUITE_P(RocprimDeviceRadixSort);
 
-inline std::vector<unsigned int> get_sizes(int seed_value)
-{
-    std::vector<unsigned int> sizes = { 0, 1, 10, 53, 211, 1024, 2049, 2345, 4096, 8196, 34567, (1 << 16) - 1220, (1 << 23) - 76543 };
-
-    const std::vector<unsigned int> random_sizes
-        = test_utils::get_random_data<unsigned int>(10, 1, 100000, seed_value);
-    sizes.insert(sizes.end(), random_sizes.begin(), random_sizes.end());
-    return sizes;
-}
-
 template<typename TestFixture>
 inline void sort_keys()
 {
     int device_id = test_common_utils::obtain_device_from_ctest();
-    SCOPED_TRACE(testing::Message() << "with device_id= " << device_id);
+    SCOPED_TRACE(testing::Message() << "with device_id = " << device_id);
     HIP_CHECK(hipSetDevice(device_id));
 
     using key_type                           = typename TestFixture::params::key_type;
@@ -90,17 +81,15 @@ inline void sort_keys()
     {
         unsigned int seed_value
             = seed_index < random_seeds_count ? rand() : seeds[seed_index - random_seeds_count];
-        SCOPED_TRACE(testing::Message() << "with seed= " << seed_value);
+        SCOPED_TRACE(testing::Message() << "with seed = " << seed_value);
 
-        for(unsigned int size : get_sizes(seed_value))
+        auto sizes = test_utils::get_sizes(seed_value);
+        sizes.push_back(1 << 23);
+
+        for(size_t size : sizes)
         {
-            if(size > (1 << 20) && !check_large_sizes)
-                continue;
-            if(size == 0 && test_common_utils::use_hmm())
-            {
-                // hipMallocManaged() currently doesnt support zero byte allocation
-                continue;
-            }
+            if(size > (1 << 17) && !check_large_sizes)
+                break;
 
             SCOPED_TRACE(testing::Message() << "with size = " << size);
 
@@ -111,8 +100,8 @@ inline void sort_keys()
             if(rocprim::is_floating_point<key_type>::value)
             {
                 keys_input = test_utils::get_random_data<key_type>(size,
-                                                                   (key_type)-1000,
-                                                                   (key_type) + 1000,
+                                                                   static_cast<key_type>(-1000),
+                                                                   static_cast<key_type>(+1000),
                                                                    seed_value);
                 test_utils::add_special_values(keys_input, seed_value);
             }
@@ -217,7 +206,7 @@ template<typename TestFixture>
 inline void sort_pairs()
 {
     int device_id = test_common_utils::obtain_device_from_ctest();
-    SCOPED_TRACE(testing::Message() << "with device_id= " << device_id);
+    SCOPED_TRACE(testing::Message() << "with device_id = " << device_id);
     HIP_CHECK(hipSetDevice(device_id));
 
     using key_type                           = typename TestFixture::params::key_type;
@@ -237,17 +226,15 @@ inline void sort_pairs()
     {
         unsigned int seed_value
             = seed_index < random_seeds_count ? rand() : seeds[seed_index - random_seeds_count];
-        SCOPED_TRACE(testing::Message() << "with seed= " << seed_value);
+        SCOPED_TRACE(testing::Message() << "with seed = " << seed_value);
 
-        for(unsigned int size : get_sizes(seed_value))
+        auto sizes = test_utils::get_sizes(seed_value);
+        sizes.push_back(1 << 23);
+
+        for(size_t size : sizes)
         {
-            if(size > (1 << 20) && !check_large_sizes)
-                continue;
-            if(size == 0 && test_common_utils::use_hmm())
-            {
-                // hipMallocManaged() currently doesnt support zero byte allocation
-                continue;
-            }
+            if(size > (1 << 17) && !check_large_sizes)
+                break;
 
             SCOPED_TRACE(testing::Message() << "with size = " << size);
 
@@ -258,8 +245,8 @@ inline void sort_pairs()
             if(rocprim::is_floating_point<key_type>::value)
             {
                 keys_input = test_utils::get_random_data<key_type>(size,
-                                                                   (key_type)-1000,
-                                                                   (key_type) + 1000,
+                                                                   static_cast<key_type>(-1000),
+                                                                   static_cast<key_type>(+1000),
                                                                    seed_value);
                 test_utils::add_special_values(keys_input, seed_value);
             }
@@ -408,7 +395,7 @@ template<typename TestFixture>
 inline void sort_keys_double_buffer()
 {
     int device_id = test_common_utils::obtain_device_from_ctest();
-    SCOPED_TRACE(testing::Message() << "with device_id= " << device_id);
+    SCOPED_TRACE(testing::Message() << "with device_id = " << device_id);
     HIP_CHECK(hipSetDevice(device_id));
 
     using key_type                           = typename TestFixture::params::key_type;
@@ -425,17 +412,15 @@ inline void sort_keys_double_buffer()
     {
         unsigned int seed_value
             = seed_index < random_seeds_count ? rand() : seeds[seed_index - random_seeds_count];
-        SCOPED_TRACE(testing::Message() << "with seed= " << seed_value);
+        SCOPED_TRACE(testing::Message() << "with seed = " << seed_value);
 
-        for(unsigned int size : get_sizes(seed_value))
+        auto sizes = test_utils::get_sizes(seed_value);
+        sizes.push_back(1 << 23);
+
+        for(size_t size : sizes)
         {
-            if(size > (1 << 20) && !check_large_sizes)
-                continue;
-            if(size == 0 && test_common_utils::use_hmm())
-            {
-                // hipMallocManaged() currently doesnt support zero byte allocation
-                continue;
-            }
+            if(size > (1 << 17) && !check_large_sizes)
+                break;
 
             SCOPED_TRACE(testing::Message() << "with size = " << size);
 
@@ -444,8 +429,8 @@ inline void sort_keys_double_buffer()
             if(rocprim::is_floating_point<key_type>::value)
             {
                 keys_input = test_utils::get_random_data<key_type>(size,
-                                                                   (key_type)-1000,
-                                                                   (key_type) + 1000,
+                                                                   static_cast<key_type>(-1000),
+                                                                   static_cast<key_type>(+1000),
                                                                    seed_value);
                 test_utils::add_special_values(keys_input, seed_value);
             }
@@ -533,7 +518,7 @@ template<typename TestFixture>
 inline void sort_pairs_double_buffer()
 {
     int device_id = test_common_utils::obtain_device_from_ctest();
-    SCOPED_TRACE(testing::Message() << "with device_id= " << device_id);
+    SCOPED_TRACE(testing::Message() << "with device_id = " << device_id);
     HIP_CHECK(hipSetDevice(device_id));
 
     using key_type                           = typename TestFixture::params::key_type;
@@ -551,17 +536,15 @@ inline void sort_pairs_double_buffer()
     {
         unsigned int seed_value
             = seed_index < random_seeds_count ? rand() : seeds[seed_index - random_seeds_count];
-        SCOPED_TRACE(testing::Message() << "with seed= " << seed_value);
+        SCOPED_TRACE(testing::Message() << "with seed = " << seed_value);
 
-        for(unsigned int size : get_sizes(seed_value))
+        auto sizes = test_utils::get_sizes(seed_value);
+        sizes.push_back(1 << 23);
+
+        for(size_t size : sizes)
         {
-            if(size > (1 << 20) && !check_large_sizes)
-                continue;
-            if(size == 0 && test_common_utils::use_hmm())
-            {
-                // hipMallocManaged() currently doesnt support zero byte allocation
-                continue;
-            }
+            if(size > (1 << 17) && !check_large_sizes)
+                break;
 
             SCOPED_TRACE(testing::Message() << "with size = " << size);
 
@@ -570,8 +553,8 @@ inline void sort_pairs_double_buffer()
             if(rocprim::is_floating_point<key_type>::value)
             {
                 keys_input = test_utils::get_random_data<key_type>(size,
-                                                                   (key_type)-1000,
-                                                                   (key_type) + 1000,
+                                                                   static_cast<key_type>(-1000),
+                                                                   static_cast<key_type>(+1000),
                                                                    seed_value);
                 test_utils::add_special_values(keys_input, seed_value);
             }
@@ -710,7 +693,7 @@ inline void sort_keys_over_4g()
     const int           seed_value = rand();
 
     const int device_id = test_common_utils::obtain_device_from_ctest();
-    SCOPED_TRACE(testing::Message() << "with device_id= " << device_id);
+    SCOPED_TRACE(testing::Message() << "with device_id = " << device_id);
     HIP_CHECK(hipSetDevice(device_id));
 
     std::vector<key_type> keys_input
@@ -723,10 +706,11 @@ inline void sort_keys_over_4g()
     std::for_each(keys_input.begin(), keys_input.end(), [&](const key_type& a) { histogram[a]++; });
 
     key_type* d_keys_input_output{};
-    HIP_CHECK(test_common_utils::hipMallocHelper(&d_keys_input_output, size * sizeof(key_type)));
+    size_t key_type_storage_bytes = size * sizeof(key_type);
+    HIP_CHECK(test_common_utils::hipMallocHelper(&d_keys_input_output, key_type_storage_bytes));
     HIP_CHECK(hipMemcpy(d_keys_input_output,
                         keys_input.data(),
-                        size * sizeof(key_type),
+                        key_type_storage_bytes,
                         hipMemcpyHostToDevice));
 
     size_t temporary_storage_bytes;
@@ -741,6 +725,17 @@ inline void sort_keys_over_4g()
                                        debug_synchronous));
 
     ASSERT_GT(temporary_storage_bytes, 0);
+
+	hipDeviceProp_t prop;
+	HIP_CHECK(hipGetDeviceProperties(&prop, device_id));
+
+    size_t total_storage_bytes = key_type_storage_bytes +  temporary_storage_bytes;
+    if (total_storage_bytes > prop.totalGlobalMem) {
+		HIP_CHECK(hipFree(d_keys_input_output));
+        GTEST_SKIP() << "Test case device memory requirement (" << total_storage_bytes << " bytes) exceeds available memory on current device ("
+				     << prop.totalGlobalMem << " bytes). Skipping test";
+    }
+
     void* d_temporary_storage;
     HIP_CHECK(test_common_utils::hipMallocHelper(&d_temporary_storage, temporary_storage_bytes));
 

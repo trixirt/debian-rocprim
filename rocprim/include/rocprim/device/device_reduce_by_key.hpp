@@ -21,17 +21,24 @@
 #ifndef ROCPRIM_DEVICE_DEVICE_REDUCE_BY_KEY_HPP_
 #define ROCPRIM_DEVICE_DEVICE_REDUCE_BY_KEY_HPP_
 
-#include <iterator>
-#include <iostream>
+#include "config_types.hpp"
+#include "device_reduce_by_key_config.hpp"
+#include "device_transform.hpp"
+
+#include "detail/device_reduce_by_key.hpp"
+#include "detail/device_scan_common.hpp"
+#include "detail/lookback_scan_state.hpp"
 
 #include "../config.hpp"
-#include "../detail/various.hpp"
 #include "../detail/match_result_type.hpp"
-
+#include "../detail/temp_storage.hpp"
+#include "../detail/various.hpp"
 #include "../functional.hpp"
+#include "../iterator/constant_iterator.hpp"
 
-#include "device_reduce_by_key_config.hpp"
-#include "detail/device_reduce_by_key.hpp"
+#include <chrono>
+#include <iostream>
+#include <iterator>
 
 BEGIN_ROCPRIM_NAMESPACE
 
@@ -41,245 +48,326 @@ BEGIN_ROCPRIM_NAMESPACE
 namespace detail
 {
 
-template<
-    unsigned int BlockSize,
-    unsigned int ItemsPerThread,
-    class KeysInputIterator,
-    class KeyCompareFunction
->
-ROCPRIM_KERNEL
-__launch_bounds__(BlockSize)
-void fill_unique_counts_kernel(KeysInputIterator keys_input,
-                               unsigned int size,
-                               unsigned int * unique_counts,
-                               KeyCompareFunction key_compare_op,
-                               unsigned int blocks_per_full_batch,
-                               unsigned int full_batches)
+namespace reduce_by_key
 {
-    fill_unique_counts<BlockSize, ItemsPerThread>(
-        keys_input, size,
-        unique_counts,
-        key_compare_op,
-        blocks_per_full_batch, full_batches
-    );
-}
 
-template<
-    unsigned int BlockSize,
-    unsigned int ItemsPerThread,
-    class UniqueCountOutputIterator
->
-ROCPRIM_KERNEL
-__launch_bounds__(BlockSize)
-void scan_unique_counts_kernel(unsigned int * unique_counts,
-                               UniqueCountOutputIterator unique_count_output,
-                               unsigned int batches)
+template<typename LookBackScanState, typename AccumulatorType>
+ROCPRIM_KERNEL __launch_bounds__(ROCPRIM_DEFAULT_MAX_BLOCK_SIZE) void init_kernel(
+    LookBackScanState              lookback_scan_state,
+    const unsigned int             number_of_tiles,
+    ordered_block_id<unsigned int> ordered_bid,
+    const bool                     is_first_launch,
+    const unsigned int             tile_save_idx,
+    std::size_t* const             global_head_count,
+    AccumulatorType* const         previous_accumulated)
 {
-    scan_unique_counts<BlockSize, ItemsPerThread>(unique_counts, unique_count_output, batches);
-}
+    const unsigned int block_id        = ::rocprim::detail::block_id<0>();
+    const unsigned int block_size      = ::rocprim::detail::block_size<0>();
+    const unsigned int block_thread_id = ::rocprim::detail::block_thread_id<0>();
+    const unsigned int flat_thread_id  = (block_id * block_size) + block_thread_id;
 
-template<
-    unsigned int BlockSize,
-    unsigned int ItemsPerThread,
-    class KeysInputIterator,
-    class ValuesInputIterator,
-    class Result,
-    class UniqueOutputIterator,
-    class AggregatesOutputIterator,
-    class KeyCompareFunction,
-    class BinaryFunction
->
-ROCPRIM_KERNEL
-__launch_bounds__(BlockSize)
-void reduce_by_key_kernel(KeysInputIterator keys_input,
-                          ValuesInputIterator values_input,
-                          unsigned int size,
-                          const unsigned int * unique_starts,
-                          carry_out<Result> * carry_outs,
-                          Result * leading_aggregates,
-                          UniqueOutputIterator unique_output,
-                          AggregatesOutputIterator aggregates_output,
-                          KeyCompareFunction key_compare_op,
-                          BinaryFunction reduce_op,
-                          unsigned int blocks_per_full_batch,
-                          unsigned int full_batches)
-{
-    reduce_by_key<BlockSize, ItemsPerThread>(
-        keys_input, values_input, size,
-        unique_starts, carry_outs, leading_aggregates,
-        unique_output, aggregates_output,
-        key_compare_op, reduce_op,
-        blocks_per_full_batch, full_batches
-    );
-}
-
-template<
-    unsigned int BlockSize,
-    unsigned int ItemsPerThread,
-    class Result,
-    class AggregatesOutputIterator,
-    class BinaryFunction
->
-ROCPRIM_KERNEL
-__launch_bounds__(BlockSize)
-void scan_and_scatter_carry_outs_kernel(const carry_out<Result> * carry_outs,
-                                        const Result * leading_aggregates,
-                                        AggregatesOutputIterator aggregates_output,
-                                        BinaryFunction reduce_op,
-                                        unsigned int batches)
-{
-    scan_and_scatter_carry_outs<BlockSize, ItemsPerThread>(
-        carry_outs, leading_aggregates, aggregates_output,
-        reduce_op,
-        batches
-    );
-}
-
-#define ROCPRIM_DETAIL_HIP_SYNC_AND_RETURN_ON_ERROR(name, size, start) \
-    { \
-        auto _error = hipGetLastError(); \
-        if(_error != hipSuccess) return _error; \
-        if(debug_synchronous) \
-        { \
-            std::cout << name << "(" << size << ")"; \
-            auto __error = hipStreamSynchronize(stream); \
-            if(__error != hipSuccess) return __error; \
-            auto _end = std::chrono::high_resolution_clock::now(); \
-            auto _d = std::chrono::duration_cast<std::chrono::duration<double>>(_end - start); \
-            std::cout << " " << _d.count() * 1000 << " ms" << '\n'; \
-        } \
-    }
-
-template<
-    class Config,
-    class KeysInputIterator,
-    class ValuesInputIterator,
-    class UniqueOutputIterator,
-    class AggregatesOutputIterator,
-    class UniqueCountOutputIterator,
-    class BinaryFunction,
-    class KeyCompareFunction
->
-inline
-hipError_t reduce_by_key_impl(void * temporary_storage,
-                              size_t& storage_size,
-                              KeysInputIterator keys_input,
-                              ValuesInputIterator values_input,
-                              const unsigned int size,
-                              UniqueOutputIterator unique_output,
-                              AggregatesOutputIterator aggregates_output,
-                              UniqueCountOutputIterator unique_count_output,
-                              BinaryFunction reduce_op,
-                              KeyCompareFunction key_compare_op,
-                              const hipStream_t stream,
-                              const bool debug_synchronous)
-{
-    using key_type = typename std::iterator_traits<KeysInputIterator>::value_type;
-    using result_type = typename ::rocprim::detail::match_result_type<
-        typename std::iterator_traits<ValuesInputIterator>::value_type,
-        BinaryFunction
-    >::type;
-    using carry_out_type = carry_out<result_type>;
-
-    using config = default_or_custom_config<
-        Config,
-        default_reduce_by_key_config<ROCPRIM_TARGET_ARCH, key_type, result_type>
-    >;
-
-    constexpr unsigned int items_per_block = config::reduce::block_size * config::reduce::items_per_thread;
-    constexpr unsigned int scan_items_per_block = config::scan::block_size * config::scan::items_per_thread;
-
-    const unsigned int blocks = std::max(1u, ::rocprim::detail::ceiling_div(size, items_per_block));
-    const unsigned int blocks_per_full_batch = ::rocprim::detail::ceiling_div(blocks, scan_items_per_block);
-    const unsigned int full_batches = blocks % scan_items_per_block != 0
-        ? blocks % scan_items_per_block
-        : scan_items_per_block;
-    const unsigned int batches = (blocks_per_full_batch == 1 ? full_batches : scan_items_per_block);
-
-    const size_t unique_counts_bytes = ::rocprim::detail::align_size(batches * sizeof(unsigned int));
-    const size_t carry_outs_bytes = ::rocprim::detail::align_size(batches * sizeof(carry_out_type));
-    const size_t leading_aggregates_bytes = ::rocprim::detail::align_size(batches * sizeof(result_type));
-    if(temporary_storage == nullptr)
+    if(is_first_launch)
     {
-        storage_size = unique_counts_bytes + carry_outs_bytes + leading_aggregates_bytes;
-        return hipSuccess;
+        if(global_head_count != nullptr && flat_thread_id == 0)
+        {
+            // If there are subsequent launches, initialize the accumulated head flags
+            // over previous launches to zero.
+            *global_head_count = 0;
+        }
     }
+    else
+    {
+        // Use the reduction of the last launch to update the across-launch variables.
+        const auto update_func = [&](typename LookBackScanState::value_type value)
+        {
+            *global_head_count += ::rocprim::get<0>(value);
+            *previous_accumulated = ::rocprim::get<1>(value);
+        };
+        access_indexed_lookback_value(lookback_scan_state,
+                                      number_of_tiles,
+                                      tile_save_idx,
+                                      flat_thread_id,
+                                      update_func);
+    }
+
+    init_lookback_scan_state(lookback_scan_state, number_of_tiles, ordered_bid, flat_thread_id);
+}
+
+template<typename Config,
+         typename AccumulatorType,
+         typename KeyIterator,
+         typename ValueIterator,
+         typename UniqueIterator,
+         typename ReductionIterator,
+         typename UniqueCountIterator,
+         typename CompareFunction,
+         typename BinaryOp,
+         typename LookbackScanState>
+ROCPRIM_KERNEL __launch_bounds__(Config::block_size) void kernel(
+    const KeyIterator                    keys_input,
+    const ValueIterator                  values_input,
+    const UniqueIterator                 unique_keys,
+    const ReductionIterator              reductions,
+    const UniqueCountIterator            unique_count,
+    const BinaryOp                       reduce_op,
+    const CompareFunction                compare,
+    const LookbackScanState              scan_state,
+    const ordered_block_id<unsigned int> ordered_tile_id,
+    const std::size_t                    starting_tile,
+    const std::size_t                    total_number_of_tiles,
+    const std::size_t                    size,
+    const std::size_t* const             global_head_count,
+    const AccumulatorType* const         previous_accumulated,
+    const std::size_t                    number_of_tiles_launch)
+{
+    reduce_by_key::kernel_impl<Config>(keys_input,
+                                       values_input,
+                                       unique_keys,
+                                       reductions,
+                                       unique_count,
+                                       reduce_op,
+                                       compare,
+                                       scan_state,
+                                       ordered_tile_id,
+                                       starting_tile,
+                                       total_number_of_tiles,
+                                       size,
+                                       global_head_count,
+                                       previous_accumulated,
+                                       number_of_tiles_launch);
+}
+
+#define ROCPRIM_DETAIL_HIP_SYNC_AND_RETURN_ON_ERROR(name, size, start)                           \
+    do                                                                                           \
+    {                                                                                            \
+        auto _error = hipGetLastError();                                                         \
+        if(_error != hipSuccess)                                                                 \
+            return _error;                                                                       \
+        if(debug_synchronous)                                                                    \
+        {                                                                                        \
+            std::cout << name << "(" << size << ")";                                             \
+            auto __error = hipStreamSynchronize(stream);                                         \
+            if(__error != hipSuccess)                                                            \
+                return __error;                                                                  \
+            auto _end = std::chrono::high_resolution_clock::now();                               \
+            auto _d   = std::chrono::duration_cast<std::chrono::duration<double>>(_end - start); \
+            std::cout << " " << _d.count() * 1000 << " ms" << '\n';                              \
+        }                                                                                        \
+    }                                                                                            \
+    while(false)
+
+template<class Config,
+         class KeysInputIterator,
+         class ValuesInputIterator,
+         class UniqueOutputIterator,
+         class AggregatesOutputIterator,
+         class UniqueCountOutputIterator,
+         class BinaryFunction,
+         class KeyCompareFunction>
+hipError_t reduce_by_key_impl(void*                     temporary_storage,
+                              size_t&                   storage_size,
+                              KeysInputIterator         keys_input,
+                              ValuesInputIterator       values_input,
+                              const size_t              size,
+                              UniqueOutputIterator      unique_output,
+                              AggregatesOutputIterator  aggregates_output,
+                              UniqueCountOutputIterator unique_count_output,
+                              BinaryFunction            reduce_op,
+                              KeyCompareFunction        key_compare_op,
+                              const hipStream_t         stream,
+                              const bool                debug_synchronous)
+{
+    using key_type         = reduce_by_key::value_type_t<KeysInputIterator>;
+    using accumulator_type = reduce_by_key::accumulator_type_t<ValuesInputIterator, BinaryFunction>;
+
+    using config = detail::default_or_custom_config<
+        Config,
+        reduce_by_key::default_config<ROCPRIM_TARGET_ARCH, key_type, accumulator_type>>;
+
+    using scan_state_type
+        = reduce_by_key::lookback_scan_state_t<accumulator_type, /*UseSleep=*/false>;
+    using scan_state_with_sleep_type
+        = reduce_by_key::lookback_scan_state_t<accumulator_type, /*UseSleep=*/true>;
+
+    using ordered_tile_id_type = detail::ordered_block_id<unsigned int>;
+
+    constexpr unsigned int block_size      = config::block_size;
+    constexpr unsigned int tiles_per_block = config::tiles_per_block;
+    constexpr unsigned int items_per_tile  = block_size * config::items_per_thread;
+    constexpr unsigned int items_per_block = items_per_tile * tiles_per_block;
+
+    static constexpr size_t size_limit = config::size_limit;
+    static constexpr size_t aligned_size_limit
+        = ::rocprim::max<size_t>(size_limit - size_limit % items_per_block, items_per_block);
+
+    const size_t limited_size     = std::min<size_t>(size, aligned_size_limit);
+    const bool   use_limited_size = limited_size == aligned_size_limit;
+
+    // Number of tiles in a single launch (or the only launch if it fits)
+    const std::size_t number_of_tiles  = detail::ceiling_div(limited_size, items_per_tile);
+    const std::size_t number_of_blocks = detail::ceiling_div(number_of_tiles, tiles_per_block);
+
+    // Calculate required temporary storage
+    void*                          scan_state_storage;
+    ordered_tile_id_type::id_type* ordered_bid_storage;
+    // The number of segment heads in previous launches.
+    std::size_t* d_global_head_count = nullptr;
+    // The running accumulation across the launch boundary.
+    accumulator_type* d_previous_accumulated = nullptr;
+
+    const hipError_t partition_result = detail::temp_storage::partition(
+        temporary_storage,
+        storage_size,
+        detail::temp_storage::make_linear_partition(
+            // This is valid even with scan_state_with_sleep_type
+            detail::temp_storage::make_partition(
+                &scan_state_storage,
+                scan_state_type::get_temp_storage_layout(number_of_tiles)),
+            detail::temp_storage::make_partition(&ordered_bid_storage,
+                                                 ordered_tile_id_type::get_temp_storage_layout()),
+            detail::temp_storage::ptr_aligned_array(&d_global_head_count, use_limited_size ? 1 : 0),
+            detail::temp_storage::ptr_aligned_array(&d_previous_accumulated,
+                                                    use_limited_size ? 1 : 0)));
+    if(partition_result != hipSuccess || temporary_storage == nullptr)
+    {
+        return partition_result;
+    }
+
+    bool             use_sleep;
+    const hipError_t result = detail::is_sleep_scan_state_used(use_sleep);
+    if(result != hipSuccess)
+    {
+        return result;
+    }
+    auto with_scan_state
+        = [use_sleep,
+           scan_state = scan_state_type::create(scan_state_storage, number_of_tiles),
+           scan_state_with_sleep
+           = scan_state_with_sleep_type::create(scan_state_storage, number_of_tiles)](
+              auto&& func) mutable -> decltype(auto)
+    {
+        if(use_sleep)
+        {
+            return func(scan_state_with_sleep);
+        }
+        else
+        {
+            return func(scan_state);
+        }
+    };
+
+    auto ordered_bid = ordered_tile_id_type::create(ordered_bid_storage);
+
+    if(size == 0)
+    {
+        // Fill out unique_count_output with zero
+        return rocprim::transform(rocprim::constant_iterator<std::size_t>(0),
+                                  unique_count_output,
+                                  1,
+                                  rocprim::identity<std::size_t>{},
+                                  stream,
+                                  debug_synchronous);
+    }
+
+    // Total number of tiles in all launches
+    const std::size_t total_number_of_tiles = ceiling_div(size, items_per_tile);
+    const std::size_t number_of_launch      = ceiling_div(size, limited_size);
 
     if(debug_synchronous)
     {
-        std::cout << "blocks " << blocks << '\n';
-        std::cout << "blocks_per_full_batch " << blocks_per_full_batch << '\n';
-        std::cout << "full_batches " << full_batches << '\n';
-        std::cout << "batches " << batches << '\n';
-        std::cout << "storage_size " << storage_size << '\n';
-        hipError_t error = hipStreamSynchronize(stream);
-        if(error != hipSuccess) return error;
+        std::cout << "size:               " << size << '\n';
+        std::cout << "aligned_size_limit: " << aligned_size_limit << '\n';
+        std::cout << "use_limited_size:   " << std::boolalpha << use_limited_size << '\n';
+        std::cout << "number_of_launch:   " << number_of_launch << '\n';
+        std::cout << "block_size:         " << block_size << '\n';
+        std::cout << "tiles_per_block:    " << tiles_per_block << '\n';
+        std::cout << "number_of_tiles:    " << number_of_tiles << '\n';
+        std::cout << "number_of_blocks:   " << number_of_blocks << '\n';
+        std::cout << "items_per_tile:     " << items_per_tile << '\n';
     }
 
-    char * ptr = reinterpret_cast<char *>(temporary_storage);
-    unsigned int * unique_counts = reinterpret_cast<unsigned int *>(ptr);
-    ptr += unique_counts_bytes;
-    carry_out_type * carry_outs = reinterpret_cast<carry_out_type *>(ptr);
-    ptr += carry_outs_bytes;
-    result_type * leading_aggregates = reinterpret_cast<result_type *>(ptr);
+    for(size_t i = 0, offset = 0; i < number_of_launch; i++, offset += limited_size)
+    {
+        const std::size_t current_size = std::min<std::size_t>(size - offset, limited_size);
+        const std::size_t number_of_tiles_launch = ceiling_div(current_size, items_per_tile);
+        const std::size_t number_of_blocks_launch
+            = ceiling_div(number_of_tiles_launch, tiles_per_block);
+        const std::size_t init_grid_size = detail::ceiling_div(number_of_tiles_launch, block_size);
 
-    // Start point for time measurements
-    std::chrono::high_resolution_clock::time_point start;
+        // Start point for time measurements
+        std::chrono::high_resolution_clock::time_point start;
+        if(debug_synchronous)
+        {
+            std::cout << "index:            " << i << '\n';
+            std::cout << "current_size:     " << current_size << '\n';
+            std::cout << "number of tiles:  " << number_of_tiles_launch << '\n';
+            std::cout << "number of blocks: " << number_of_blocks_launch << '\n';
 
-    if(debug_synchronous) start = std::chrono::high_resolution_clock::now();
-    hipLaunchKernelGGL(
-        HIP_KERNEL_NAME(fill_unique_counts_kernel<config::reduce::block_size, config::reduce::items_per_thread>),
-        dim3(batches), dim3(config::reduce::block_size), 0, stream,
-        keys_input, size, unique_counts, key_compare_op,
-        blocks_per_full_batch, full_batches
-    );
-    ROCPRIM_DETAIL_HIP_SYNC_AND_RETURN_ON_ERROR("fill_unique_counts", size, start)
+            start = std::chrono::high_resolution_clock::now();
+        }
 
-    if(debug_synchronous) start = std::chrono::high_resolution_clock::now();
-    hipLaunchKernelGGL(
-        HIP_KERNEL_NAME(scan_unique_counts_kernel<config::scan::block_size, config::scan::items_per_thread>),
-        dim3(1), dim3(config::scan::block_size), 0, stream,
-        unique_counts, unique_count_output,
-        batches
-    );
-    ROCPRIM_DETAIL_HIP_SYNC_AND_RETURN_ON_ERROR("scan_unique_counts", config::scan::block_size, start)
+        with_scan_state(
+            [&](const auto scan_state)
+            {
+                hipLaunchKernelGGL(init_kernel,
+                                   dim3(init_grid_size),
+                                   dim3(block_size),
+                                   0,
+                                   stream,
+                                   scan_state,
+                                   number_of_tiles_launch,
+                                   ordered_bid,
+                                   i == 0,
+                                   number_of_tiles - 1,
+                                   d_global_head_count,
+                                   d_previous_accumulated);
+            });
+        ROCPRIM_DETAIL_HIP_SYNC_AND_RETURN_ON_ERROR("init_lookback_scan_state_kernel",
+                                                    number_of_tiles_launch,
+                                                    start);
 
-    if(debug_synchronous) start = std::chrono::high_resolution_clock::now();
-    hipLaunchKernelGGL(
-        HIP_KERNEL_NAME(reduce_by_key_kernel<config::reduce::block_size, config::reduce::items_per_thread>),
-        dim3(batches), dim3(config::reduce::block_size), 0, stream,
-        keys_input, values_input, size,
-        const_cast<const unsigned int *>(unique_counts), carry_outs, leading_aggregates,
-        unique_output, aggregates_output,
-        key_compare_op, reduce_op,
-        blocks_per_full_batch, full_batches
-    );
-    ROCPRIM_DETAIL_HIP_SYNC_AND_RETURN_ON_ERROR("reduce_by_key", size, start)
-
-    if(debug_synchronous) start = std::chrono::high_resolution_clock::now();
-    hipLaunchKernelGGL(
-        HIP_KERNEL_NAME(scan_and_scatter_carry_outs_kernel<config::scan::block_size, config::scan::items_per_thread>),
-        dim3(1), dim3(config::scan::block_size), 0, stream,
-        const_cast<const carry_out_type *>(carry_outs), const_cast<const result_type *>(leading_aggregates),
-        aggregates_output,
-        reduce_op,
-        batches
-    );
-    ROCPRIM_DETAIL_HIP_SYNC_AND_RETURN_ON_ERROR("scan_and_scatter_carry_outs", config::scan::block_size, start)
+        with_scan_state(
+            [&](const auto scan_state)
+            {
+                hipLaunchKernelGGL(reduce_by_key::kernel<config>,
+                                   dim3(number_of_blocks_launch),
+                                   dim3(block_size),
+                                   0,
+                                   stream,
+                                   keys_input + offset,
+                                   values_input + offset,
+                                   unique_output,
+                                   aggregates_output,
+                                   unique_count_output,
+                                   reduce_op,
+                                   key_compare_op,
+                                   scan_state,
+                                   ordered_bid,
+                                   i * number_of_tiles,
+                                   total_number_of_tiles,
+                                   size,
+                                   i > 0 ? d_global_head_count : nullptr,
+                                   i > 0 ? d_previous_accumulated : nullptr,
+                                   number_of_tiles_launch);
+            });
+        ROCPRIM_DETAIL_HIP_SYNC_AND_RETURN_ON_ERROR("reduce_by_key_kernel", current_size, start);
+    }
 
     return hipSuccess;
 }
 
 #undef ROCPRIM_DETAIL_HIP_SYNC_AND_RETURN_ON_ERROR
 
-} // end of detail namespace
+} // namespace reduce_by_key
+
+} // namespace detail
 
 /// \brief Parallel reduce-by-key primitive for device level.
 ///
-/// reduce_by_key function performs a device-wide reduction operation of groups
+/// reduce_by_key function performs a device-wide reduction operation on groups
 /// of consecutive values having the same key using binary \p reduce_op operator. The first key of each group
-/// is copied to \p unique_output and reduction of the group is written to \p aggregates_output.
-/// The total number of group is written to \p unique_count_output.
+/// is copied to \p unique_output and the reduction of the group is written to \p aggregates_output.
+/// The total number of groups is written to \p unique_count_output.
 ///
 /// \par Overview
 /// * Supports non-commutative reduction operators. However, a reduction operator should be
@@ -292,8 +380,8 @@ hipError_t reduce_by_key_impl(void * temporary_storage,
 /// * Ranges specified by \p unique_output and \p aggregates_output must have at least
 /// <tt>*unique_count_output</tt> (i.e. the number of unique keys) elements.
 ///
-/// \tparam Config - [optional] configuration of the primitive. It can be \p reduce_by_key_config or
-/// a custom class with the same members.
+/// \tparam Config - [optional] configuration of the primitive. It can be `reduce_by_key_config_v2`
+/// or `default_config`
 /// \tparam KeysInputIterator - random-access iterator type of the input range. Must meet the
 /// requirements of a C++ InputIterator concept. It can be a simple pointer type.
 /// \tparam ValuesInputIterator - random-access iterator type of the input range. Must meet the
@@ -324,7 +412,7 @@ hipError_t reduce_by_key_impl(void * temporary_storage,
 /// <tt>T f(const T &a, const T &b);</tt>. The signature does not need to have
 /// <tt>const &</tt>, but function object must not modify the objects passed to it.
 /// Default is BinaryFunction().
-/// \param [in] key_compare_op - binary operation function object that will be used to determine keys equality.
+/// \param [in] key_compare_op - binary operation function object that will be used to determine key equality.
 /// The signature of the function should be equivalent to the following:
 /// <tt>bool f(const T &a, const T &b);</tt>. The signature does not need to have
 /// <tt>const &</tt>, but function object must not modify the objects passed to it.
@@ -375,37 +463,41 @@ hipError_t reduce_by_key_impl(void * temporary_storage,
 /// // unique_count_output: [4]
 /// \endcode
 /// \endparblock
-template<
-    class Config = default_config,
-    class KeysInputIterator,
-    class ValuesInputIterator,
-    class UniqueOutputIterator,
-    class AggregatesOutputIterator,
-    class UniqueCountOutputIterator,
-    class BinaryFunction = ::rocprim::plus<typename std::iterator_traits<ValuesInputIterator>::value_type>,
-    class KeyCompareFunction = ::rocprim::equal_to<typename std::iterator_traits<KeysInputIterator>::value_type>
->
-inline
-hipError_t reduce_by_key(void * temporary_storage,
-                         size_t& storage_size,
-                         KeysInputIterator keys_input,
-                         ValuesInputIterator values_input,
-                         unsigned int size,
-                         UniqueOutputIterator unique_output,
-                         AggregatesOutputIterator aggregates_output,
-                         UniqueCountOutputIterator unique_count_output,
-                         BinaryFunction reduce_op = BinaryFunction(),
-                         KeyCompareFunction key_compare_op = KeyCompareFunction(),
-                         hipStream_t stream = 0,
-                         bool debug_synchronous = false)
+template<class Config = default_config,
+         class KeysInputIterator,
+         class ValuesInputIterator,
+         class UniqueOutputIterator,
+         class AggregatesOutputIterator,
+         class UniqueCountOutputIterator,
+         class BinaryFunction
+         = ::rocprim::plus<typename std::iterator_traits<ValuesInputIterator>::value_type>,
+         class KeyCompareFunction
+         = ::rocprim::equal_to<typename std::iterator_traits<KeysInputIterator>::value_type>>
+inline hipError_t reduce_by_key(void*                     temporary_storage,
+                                size_t&                   storage_size,
+                                KeysInputIterator         keys_input,
+                                ValuesInputIterator       values_input,
+                                const size_t              size,
+                                UniqueOutputIterator      unique_output,
+                                AggregatesOutputIterator  aggregates_output,
+                                UniqueCountOutputIterator unique_count_output,
+                                BinaryFunction            reduce_op         = BinaryFunction(),
+                                KeyCompareFunction        key_compare_op    = KeyCompareFunction(),
+                                hipStream_t               stream            = 0,
+                                bool                      debug_synchronous = false)
 {
-    return detail::reduce_by_key_impl<Config>(
-        temporary_storage, storage_size,
-        keys_input, values_input, size,
-        unique_output, aggregates_output, unique_count_output,
-        reduce_op, key_compare_op,
-        stream, debug_synchronous
-    );
+    return detail::reduce_by_key::reduce_by_key_impl<Config>(temporary_storage,
+                                                             storage_size,
+                                                             keys_input,
+                                                             values_input,
+                                                             size,
+                                                             unique_output,
+                                                             aggregates_output,
+                                                             unique_count_output,
+                                                             reduce_op,
+                                                             key_compare_op,
+                                                             stream,
+                                                             debug_synchronous);
 }
 
 /// @}

@@ -20,13 +20,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include <iostream>
-#include <chrono>
-#include <vector>
-#include <limits>
-#include <string>
 #include <cstdio>
 #include <cstdlib>
+#include <iostream>
+#include <limits>
+#include <string>
+#include <vector>
 
 // Google Benchmark
 #include "benchmark/benchmark.h"
@@ -39,15 +38,6 @@
 
 // rocPRIM
 #include <rocprim/rocprim.hpp>
-
-#define HIP_CHECK(condition)         \
-  {                                  \
-    hipError_t error = condition;    \
-    if(error != hipSuccess){         \
-        std::cout << "HIP error: " << error << " line: " << __LINE__ << std::endl; \
-        exit(error); \
-    } \
-  }
 
 #ifndef DEFAULT_N
 const size_t DEFAULT_N = 1024 * 1024 * 128;
@@ -159,9 +149,15 @@ void run_benchmark(benchmark::State& state, benchmark_kinds benchmark_kind, hipS
     );
     HIP_CHECK(hipDeviceSynchronize());
 
+    // HIP events creation
+    hipEvent_t start, stop;
+    HIP_CHECK(hipEventCreate(&start));
+    HIP_CHECK(hipEventCreate(&stop));
+
     for(auto _ : state)
     {
-        auto start = std::chrono::high_resolution_clock::now();
+        // Record start event
+        HIP_CHECK(hipEventRecord(start, stream));
 
         if(benchmark_kind == benchmark_kinds::sort_keys)
         {
@@ -180,13 +176,20 @@ void run_benchmark(benchmark::State& state, benchmark_kinds benchmark_kind, hipS
             );
         }
         HIP_CHECK(hipGetLastError());
-        HIP_CHECK(hipDeviceSynchronize());
 
-        auto end = std::chrono::high_resolution_clock::now();
-        auto elapsed_seconds =
-            std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-        state.SetIterationTime(elapsed_seconds.count());
+        // Record stop event and wait until it completes
+        HIP_CHECK(hipEventRecord(stop, stream));
+        HIP_CHECK(hipEventSynchronize(stop));
+
+        float elapsed_mseconds;
+        HIP_CHECK(hipEventElapsedTime(&elapsed_mseconds, start, stop));
+        state.SetIterationTime(elapsed_mseconds / 1000);
     }
+
+    // Destroy HIP events
+    HIP_CHECK(hipEventDestroy(start));
+    HIP_CHECK(hipEventDestroy(stop));
+
     state.SetBytesProcessed(state.iterations() * Trials * size * sizeof(T));
     state.SetItemsProcessed(state.iterations() * Trials * size);
 
@@ -194,12 +197,15 @@ void run_benchmark(benchmark::State& state, benchmark_kinds benchmark_kind, hipS
     HIP_CHECK(hipFree(d_output));
 }
 
-#define CREATE_BENCHMARK(T, BS, IPT) \
-benchmark::RegisterBenchmark( \
-    (std::string("block_radix_sort<" #T ", " #BS ", " #IPT ">.") + name).c_str(), \
-    run_benchmark<T, BS, IPT>, \
-    benchmark_kind, stream, size \
-)
+#define CREATE_BENCHMARK(T, BS, IPT)                                                           \
+    benchmark::RegisterBenchmark(                                                              \
+        bench_naming::format_name("{lvl:block,algo:radix_sort,key_type:" #T ",subalgo:" + name \
+                                  + ",cfg:{bs:" #BS ",ipt:" #IPT "}}")                         \
+            .c_str(),                                                                          \
+        run_benchmark<T, BS, IPT>,                                                             \
+        benchmark_kind,                                                                        \
+        stream,                                                                                \
+        size)
 
 #define BENCHMARK_TYPE(type, block) \
     CREATE_BENCHMARK(type, block, 1), \
@@ -260,12 +266,17 @@ int main(int argc, char *argv[])
     cli::Parser parser(argc, argv);
     parser.set_optional<size_t>("size", "size", DEFAULT_N, "number of values");
     parser.set_optional<int>("trials", "trials", -1, "number of iterations");
+    parser.set_optional<std::string>("name_format",
+                                     "name_format",
+                                     "human",
+                                     "either: json,human,txt");
     parser.run_and_exit_if_error();
 
     // Parse argv
     benchmark::Initialize(&argc, argv);
     const size_t size = parser.get<size_t>("size");
     const int trials = parser.get<int>("trials");
+    bench_naming::set_format(parser.get<std::string>("name_format"));
 
     // HIP
     hipStream_t stream = 0; // default
@@ -276,8 +287,8 @@ int main(int argc, char *argv[])
 
     // Add benchmarks
     std::vector<benchmark::internal::Benchmark*> benchmarks;
-    add_benchmarks(benchmark_kinds::sort_keys, "sort(keys)", benchmarks, stream, size);
-    add_benchmarks(benchmark_kinds::sort_pairs, "sort(keys, values)", benchmarks, stream, size);
+    add_benchmarks(benchmark_kinds::sort_keys, "keys", benchmarks, stream, size);
+    add_benchmarks(benchmark_kinds::sort_pairs, "pairs", benchmarks, stream, size);
 
     // Use manual timing
     for(auto& b : benchmarks)

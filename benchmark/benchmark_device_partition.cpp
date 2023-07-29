@@ -40,15 +40,6 @@
 
 #include <rocprim/rocprim.hpp>
 
-#define HIP_CHECK(condition)             \
-    {                                    \
-        hipError_t error = condition;    \
-        if(error != hipSuccess){         \
-            std::cout << "HIP error: " << error << " line: " << __LINE__ << std::endl; \
-            exit(error); \
-        } \
-    }
-
 #ifndef DEFAULT_N
 const size_t DEFAULT_N = 1024 * 1024 * 32;
 #endif
@@ -136,10 +127,17 @@ void run_flagged_benchmark(benchmark::State& state,
     }
     HIP_CHECK(hipDeviceSynchronize());
 
+    // HIP events creation
+    hipEvent_t start, stop;
+    HIP_CHECK(hipEventCreate(&start));
+    HIP_CHECK(hipEventCreate(&stop));
+
     const unsigned int batch_size = 10;
     for(auto _ : state)
     {
-        auto start = std::chrono::high_resolution_clock::now();
+        // Record start event
+        HIP_CHECK(hipEventRecord(start, stream));
+
         for(size_t i = 0; i < batch_size; i++)
         {
             HIP_CHECK(rocprim::partition(
@@ -153,13 +151,20 @@ void run_flagged_benchmark(benchmark::State& state,
                 stream
             ));
         }
-        HIP_CHECK(hipDeviceSynchronize());
 
-        auto end = std::chrono::high_resolution_clock::now();
-        auto elapsed_seconds =
-            std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-        state.SetIterationTime(elapsed_seconds.count());
+        // Record stop event and wait until it completes
+        HIP_CHECK(hipEventRecord(stop, stream));
+        HIP_CHECK(hipEventSynchronize(stop));
+
+        float elapsed_mseconds;
+        HIP_CHECK(hipEventElapsedTime(&elapsed_mseconds, start, stop));
+        state.SetIterationTime(elapsed_mseconds / 1000);
     }
+
+    // Destroy HIP events
+    HIP_CHECK(hipEventDestroy(start));
+    HIP_CHECK(hipEventDestroy(stop));
+
     state.SetBytesProcessed(state.iterations() * batch_size * size * sizeof(T));
     state.SetItemsProcessed(state.iterations() * batch_size * size);
 
@@ -234,10 +239,17 @@ void run_if_benchmark(benchmark::State& state,
     }
     HIP_CHECK(hipDeviceSynchronize());
 
+    // HIP events creation
+    hipEvent_t start, stop;
+    HIP_CHECK(hipEventCreate(&start));
+    HIP_CHECK(hipEventCreate(&stop));
+
     const unsigned int batch_size = 10;
     for(auto _ : state)
     {
-        auto start = std::chrono::high_resolution_clock::now();
+        // Record start event
+        HIP_CHECK(hipEventRecord(start, stream));
+
         for(size_t i = 0; i < batch_size; i++)
         {
             HIP_CHECK(rocprim::partition(
@@ -251,13 +263,20 @@ void run_if_benchmark(benchmark::State& state,
                 stream
             ));
         }
-        HIP_CHECK(hipDeviceSynchronize());
 
-        auto end = std::chrono::high_resolution_clock::now();
-        auto elapsed_seconds =
-            std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-        state.SetIterationTime(elapsed_seconds.count());
+        // Record stop event and wait until it completes
+        HIP_CHECK(hipEventRecord(stop, stream));
+        HIP_CHECK(hipEventSynchronize(stop));
+
+        float elapsed_mseconds;
+        HIP_CHECK(hipEventElapsedTime(&elapsed_mseconds, start, stop));
+        state.SetIterationTime(elapsed_mseconds / 1000);
     }
+
+    // Destroy HIP events
+    HIP_CHECK(hipEventDestroy(start));
+    HIP_CHECK(hipEventDestroy(stop));
+
     state.SetBytesProcessed(state.iterations() * batch_size * size * sizeof(T));
     state.SetItemsProcessed(state.iterations() * batch_size * size);
 
@@ -345,10 +364,17 @@ void run_three_way_benchmark(benchmark::State& state,
     }
     HIP_CHECK(hipDeviceSynchronize());
 
+    // HIP events creation
+    hipEvent_t start, stop;
+    HIP_CHECK(hipEventCreate(&start));
+    HIP_CHECK(hipEventCreate(&stop));
+
     const unsigned int batch_size = 10;
     for(auto _ : state)
     {
-        auto start = std::chrono::high_resolution_clock::now();
+        // Record start event
+        HIP_CHECK(hipEventRecord(start, stream));
+
         for(size_t i = 0; i < batch_size; i++)
         {
             HIP_CHECK(rocprim::partition_three_way(
@@ -365,13 +391,20 @@ void run_three_way_benchmark(benchmark::State& state,
                 stream
             ));
         }
-        HIP_CHECK(hipDeviceSynchronize());
 
-        auto end = std::chrono::high_resolution_clock::now();
-        auto elapsed_seconds =
-            std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-        state.SetIterationTime(elapsed_seconds.count());
+        // Record stop event and wait until it completes
+        HIP_CHECK(hipEventRecord(stop, stream));
+        HIP_CHECK(hipEventSynchronize(stop));
+
+        float elapsed_mseconds;
+        HIP_CHECK(hipEventElapsedTime(&elapsed_mseconds, start, stop));
+        state.SetIterationTime(elapsed_mseconds / 1000);
     }
+
+    // Destroy HIP events
+    HIP_CHECK(hipEventDestroy(start));
+    HIP_CHECK(hipEventDestroy(stop));
+
     state.SetBytesProcessed(state.iterations() * batch_size * size * sizeof(T));
     state.SetItemsProcessed(state.iterations() * batch_size * size);
 
@@ -383,23 +416,38 @@ void run_three_way_benchmark(benchmark::State& state,
     hipFree(d_temp_storage);
 }
 
-#define CREATE_PARTITION_FLAGGED_BENCHMARK(T, F, p) \
-benchmark::RegisterBenchmark( \
-    ("partition(flags)<" #T "," #F ", "#T", unsigned int>(p = " #p")"), \
-    run_flagged_benchmark<T, F>, size, stream, p \
-)
+#define CREATE_PARTITION_FLAGGED_BENCHMARK(T, F, p)                                 \
+    benchmark::RegisterBenchmark(                                                   \
+        bench_naming::format_name("{lvl:device,algo:partition,key_type:" #T         \
+                                  ",subalgo:flags,flag_type:" #F ",probability:" #p \
+                                  ",cfg:default_config}")                           \
+            .c_str(),                                                               \
+        run_flagged_benchmark<T, F>,                                                \
+        size,                                                                       \
+        stream,                                                                     \
+        p)
 
-#define CREATE_PARTITION_IF_BENCHMARK(T, p) \
-benchmark::RegisterBenchmark( \
-    ("partition(if)<" #T ", "#T", unsigned int>(p = " #p")"), \
-    run_if_benchmark<T>, size, stream, p \
-)
+#define CREATE_PARTITION_IF_BENCHMARK(T, p)                                             \
+    benchmark::RegisterBenchmark(                                                       \
+        bench_naming::format_name("{lvl:device,algo:partition,key_type:" #T             \
+                                  ",subalgo:if,probability:" #p ",cfg:default_config}") \
+            .c_str(),                                                                   \
+        run_if_benchmark<T>,                                                            \
+        size,                                                                           \
+        stream,                                                                         \
+        p)
 
-#define CREATE_PARTITION_THREE_WAY_BENCHMARK(T, p1, p2) \
-benchmark::RegisterBenchmark( \
-    ("partition(three_way)<" #T ", "#T", unsigned int>(p1 = " #p1", p2 = "#p2")"), \
-    run_three_way_benchmark<T>, size, stream, p1, p2 \
-)
+#define CREATE_PARTITION_THREE_WAY_BENCHMARK(T, p1, p2)                                       \
+    benchmark::RegisterBenchmark(                                                             \
+        bench_naming::format_name("{lvl:device,algo:partition,key_type:" #T                   \
+                                  ",subalgo:three_way,probability1:" #p1 ",probability2:" #p2 \
+                                  ",cfg:default_config}")                                     \
+            .c_str(),                                                                         \
+        run_three_way_benchmark<T>,                                                           \
+        size,                                                                                 \
+        stream,                                                                               \
+        p1,                                                                                   \
+        p2)
 
 #define BENCHMARK_FLAGGED_TYPE(type, value) \
     CREATE_PARTITION_FLAGGED_BENCHMARK(type, value, 0.05f), \
@@ -424,12 +472,17 @@ int main(int argc, char *argv[])
     cli::Parser parser(argc, argv);
     parser.set_optional<size_t>("size", "size", DEFAULT_N, "number of values");
     parser.set_optional<int>("trials", "trials", -1, "number of iterations");
+    parser.set_optional<std::string>("name_format",
+                                     "name_format",
+                                     "human",
+                                     "either: json,human,txt");
     parser.run_and_exit_if_error();
 
     // Parse argv
     benchmark::Initialize(&argc, argv);
     const size_t size = parser.get<size_t>("size");
     const int trials = parser.get<int>("trials");
+    bench_naming::set_format(parser.get<std::string>("name_format"));
 
     // HIP
     hipStream_t stream = 0; // default

@@ -46,21 +46,14 @@ template<typename T    = int,
          = rocprim::detail::default_adjacent_difference_config<ROCPRIM_TARGET_ARCH, T>>
 struct device_adjacent_difference_benchmark : public config_autotune_interface
 {
-    static std::string get_name_pattern()
-    {
-        return R"---((?P<algo>\S*)\<)---"
-               R"---((?P<datatype>\S*),\s*adjacent_difference_config\<\s*)---"
-               R"---((?P<block_size>[0-9]+),\s*(?P<items_per_thread>[0-9]+)\>\>)---";
-    }
-
     std::string name() const override
     {
         using namespace std::string_literals;
-        return std::string("device_adjacent_difference" + (left ? ""s : "_right"s)
-                           + (in_place ? "_inplace"s : ""s) + "<" + std::string(Traits<T>::name())
-                           + ", adjacent_difference_config<"
-                           + pad_string(std::to_string(Config::block_size), 3) + ", "
-                           + pad_string(std::to_string(Config::items_per_thread), 2) + ">>");
+        return bench_naming::format_name(
+            "{lvl:device,algo:adjacent_difference" + (left ? ""s : "_right"s)
+            + (in_place ? "_inplace"s : ""s) + ",key_type:" + std::string(Traits<T>::name())
+            + ",cfg:{bs:" + std::to_string(Config::block_size)
+            + ",ipt:" + std::to_string(Config::items_per_thread) + "}}");
     }
 
     static constexpr unsigned int batch_size  = 10;
@@ -182,22 +175,35 @@ struct device_adjacent_difference_benchmark : public config_autotune_interface
         }
         HIP_CHECK(hipDeviceSynchronize());
 
+        // HIP events creation
+        hipEvent_t start, stop;
+        HIP_CHECK(hipEventCreate(&start));
+        HIP_CHECK(hipEventCreate(&stop));
+
         // Run
         for(auto _ : state)
         {
-            auto start = std::chrono::high_resolution_clock::now();
+            // Record start event
+            HIP_CHECK(hipEventRecord(start, stream));
 
             for(size_t i = 0; i < batch_size; i++)
             {
                 HIP_CHECK(launch());
             }
-            HIP_CHECK(hipStreamSynchronize(stream));
 
-            auto end = std::chrono::high_resolution_clock::now();
-            auto elapsed_seconds
-                = std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-            state.SetIterationTime(elapsed_seconds.count());
+            // Record stop event and wait until it completes
+            HIP_CHECK(hipEventRecord(stop, stream));
+            HIP_CHECK(hipEventSynchronize(stop));
+
+            float elapsed_mseconds;
+            HIP_CHECK(hipEventElapsedTime(&elapsed_mseconds, start, stop));
+            state.SetIterationTime(elapsed_mseconds / 1000);
         }
+
+        // Destroy HIP events
+        HIP_CHECK(hipEventDestroy(start));
+        HIP_CHECK(hipEventDestroy(stop));
+
         state.SetBytesProcessed(state.iterations() * batch_size * size * sizeof(T));
         state.SetItemsProcessed(state.iterations() * batch_size * size);
 

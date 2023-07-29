@@ -20,13 +20,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-#include <iostream>
-#include <chrono>
-#include <vector>
-#include <limits>
-#include <string>
 #include <cstdio>
 #include <cstdlib>
+#include <iostream>
+#include <limits>
+#include <string>
+#include <vector>
 
 // Google Benchmark
 #include "benchmark/benchmark.h"
@@ -39,15 +38,6 @@
 
 // rocPRIM
 #include <rocprim/rocprim.hpp>
-
-#define HIP_CHECK(condition)         \
-  {                                  \
-    hipError_t error = condition;    \
-    if(error != hipSuccess){         \
-        std::cout << "HIP error: " << error << " line: " << __LINE__ << std::endl; \
-        exit(error); \
-    } \
-  }
 
 #ifndef DEFAULT_N
 const size_t DEFAULT_N = 1024 * 1024 * 32;
@@ -121,9 +111,15 @@ void run_merge_keys_benchmark(benchmark::State& state, hipStream_t stream, size_
     }
     HIP_CHECK(hipDeviceSynchronize());
 
+    // HIP events creation
+    hipEvent_t start, stop;
+    HIP_CHECK(hipEventCreate(&start));
+    HIP_CHECK(hipEventCreate(&stop));
+
     for (auto _ : state)
     {
-        auto start = std::chrono::high_resolution_clock::now();
+        // Record start event
+        HIP_CHECK(hipEventRecord(start, stream));
 
         for(size_t i = 0; i < batch_size; i++)
         {
@@ -135,13 +131,20 @@ void run_merge_keys_benchmark(benchmark::State& state, hipStream_t stream, size_
                 )
             );
         }
-        HIP_CHECK(hipDeviceSynchronize());
 
-        auto end = std::chrono::high_resolution_clock::now();
-        auto elapsed_seconds =
-            std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-        state.SetIterationTime(elapsed_seconds.count());
+        // Record stop event and wait until it completes
+        HIP_CHECK(hipEventRecord(stop, stream));
+        HIP_CHECK(hipEventSynchronize(stop));
+
+        float elapsed_mseconds;
+        HIP_CHECK(hipEventElapsedTime(&elapsed_mseconds, start, stop));
+        state.SetIterationTime(elapsed_mseconds / 1000);
     }
+
+    // Destroy HIP events
+    HIP_CHECK(hipEventDestroy(start));
+    HIP_CHECK(hipEventDestroy(stop));
+
     state.SetBytesProcessed(state.iterations() * batch_size * size * sizeof(key_type));
     state.SetItemsProcessed(state.iterations() * batch_size * size);
 
@@ -230,9 +233,15 @@ void run_merge_pairs_benchmark(benchmark::State& state, hipStream_t stream, size
     }
     HIP_CHECK(hipDeviceSynchronize());
 
+    // HIP events creation
+    hipEvent_t start, stop;
+    HIP_CHECK(hipEventCreate(&start));
+    HIP_CHECK(hipEventCreate(&stop));
+
     for (auto _ : state)
     {
-        auto start = std::chrono::high_resolution_clock::now();
+        // Record start event
+        HIP_CHECK(hipEventRecord(start, stream));
 
         for(size_t i = 0; i < batch_size; i++)
         {
@@ -246,13 +255,20 @@ void run_merge_pairs_benchmark(benchmark::State& state, hipStream_t stream, size
                 )
             );
         }
-        HIP_CHECK(hipDeviceSynchronize());
 
-        auto end = std::chrono::high_resolution_clock::now();
-        auto elapsed_seconds =
-            std::chrono::duration_cast<std::chrono::duration<double>>(end - start);
-        state.SetIterationTime(elapsed_seconds.count());
+        // Record stop event and wait until it completes
+        HIP_CHECK(hipEventRecord(stop, stream));
+        HIP_CHECK(hipEventSynchronize(stop));
+
+        float elapsed_mseconds;
+        HIP_CHECK(hipEventElapsedTime(&elapsed_mseconds, start, stop));
+        state.SetIterationTime(elapsed_mseconds / 1000);
     }
+
+    // Destroy HIP events
+    HIP_CHECK(hipEventDestroy(start));
+    HIP_CHECK(hipEventDestroy(stop));
+
     state.SetBytesProcessed(state.iterations() * batch_size * size * (sizeof(key_type) + sizeof(value_type)));
     state.SetItemsProcessed(state.iterations() * batch_size * size);
 
@@ -265,29 +281,36 @@ void run_merge_pairs_benchmark(benchmark::State& state, hipStream_t stream, size
     HIP_CHECK(hipFree(d_values_output));
 }
 
-#define CREATE_MERGE_KEYS_BENCHMARK(Key) \
-benchmark::RegisterBenchmark( \
-    (std::string("merge") + "<" #Key ">").c_str(), \
-    [=](benchmark::State& state) { run_merge_keys_benchmark<Key>(state, stream, size); } \
-)
+#define CREATE_MERGE_KEYS_BENCHMARK(Key)                                                          \
+    benchmark::RegisterBenchmark(                                                                 \
+        bench_naming::format_name("{lvl:device,algo:merge,key_type:" #Key ",cfg:default_config}") \
+            .c_str(),                                                                             \
+        [=](benchmark::State& state) { run_merge_keys_benchmark<Key>(state, stream, size); })
 
-#define CREATE_MERGE_PAIRS_BENCHMARK(Key, Value) \
-benchmark::RegisterBenchmark( \
-    (std::string("merge") + "<" #Key ", " #Value ">").c_str(), \
-    [=](benchmark::State& state) { run_merge_pairs_benchmark<Key, Value>(state, stream, size); } \
-)
+#define CREATE_MERGE_PAIRS_BENCHMARK(Key, Value)                                                   \
+    benchmark::RegisterBenchmark(bench_naming::format_name("{lvl:device,algo:merge,key_type:" #Key \
+                                                           ",value_type:" #Value                   \
+                                                           ",cfg:default_config}")                 \
+                                     .c_str(),                                                     \
+                                 [=](benchmark::State& state)                                      \
+                                 { run_merge_pairs_benchmark<Key, Value>(state, stream, size); })
 
 int main(int argc, char *argv[])
 {
     cli::Parser parser(argc, argv);
     parser.set_optional<size_t>("size", "size", DEFAULT_N, "number of values");
     parser.set_optional<int>("trials", "trials", -1, "number of iterations");
+    parser.set_optional<std::string>("name_format",
+                                     "name_format",
+                                     "human",
+                                     "either: json,human,txt");
     parser.run_and_exit_if_error();
 
     // Parse argv
     benchmark::Initialize(&argc, argv);
     const size_t size = parser.get<size_t>("size");
     const int trials = parser.get<int>("trials");
+    bench_naming::set_format(parser.get<std::string>("name_format"));
 
     // HIP
     hipStream_t stream = 0; // default

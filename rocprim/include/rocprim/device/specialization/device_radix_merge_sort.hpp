@@ -1,4 +1,4 @@
-// Copyright (c) 2021 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2021-2022 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -22,166 +22,142 @@
 #define ROCPRIM_DEVICE_SPECIALIZATION_DEVICE_RADIX_MERGE_SORT_HPP_
 
 #include "../detail/device_radix_sort.hpp"
-#include "../specialization/device_radix_single_sort.hpp"
+#include "../device_merge_sort.hpp"
+#include "device_radix_block_sort.hpp"
 
 BEGIN_ROCPRIM_NAMESPACE
 
 namespace detail
 {
-    template<
-        unsigned int BlockSize,
-        unsigned int ItemsPerThread,
-        class KeysInputIterator,
-        class KeysOutputIterator,
-        class ValuesInputIterator,
-        class ValuesOutputIterator,
-        class BinaryFunction
-    >
-    ROCPRIM_KERNEL
-   __launch_bounds__(BlockSize)
-   void radix_block_merge_kernel(KeysInputIterator   keys_input,
-                                KeysOutputIterator   keys_output,
-                                ValuesInputIterator  values_input,
-                                ValuesOutputIterator values_output,
-                                const size_t         input_size,
-                                const unsigned int   merge_items_per_block_size,
-                                BinaryFunction       compare_function)
-   {
-       radix_block_merge_impl<BlockSize, ItemsPerThread>(
-           keys_input, keys_output,
-           values_input, values_output,
-           input_size, merge_items_per_block_size,
-           compare_function
-       );
-   }
 
-    template<
-        class Config,
-        bool Descending,
-        class KeysInputIterator,
-        class KeysOutputIterator,
-        class ValuesInputIterator,
-        class ValuesOutputIterator
-    >
-    inline
-    hipError_t radix_sort_merge(KeysInputIterator keys_input,
-                                typename std::iterator_traits<KeysInputIterator>::value_type * keys_buffer,
-                                KeysOutputIterator keys_output,
-                                ValuesInputIterator values_input,
-                                typename std::iterator_traits<ValuesInputIterator>::value_type * values_buffer,
-                                ValuesOutputIterator values_output,
-                                unsigned int size,
-                                unsigned int bit,
-                                unsigned int end_bit,
-                                hipStream_t stream,
-                                bool debug_synchronous)
+template<class Config,
+         bool Descending,
+         class KeysInputIterator,
+         class KeysOutputIterator,
+         class ValuesInputIterator,
+         class ValuesOutputIterator>
+inline hipError_t radix_sort_merge_impl(
+    void*                                                           temporary_storage,
+    size_t&                                                         storage_size,
+    KeysInputIterator                                               keys_input,
+    typename std::iterator_traits<KeysInputIterator>::value_type*   keys_buffer,
+    KeysOutputIterator                                              keys_output,
+    ValuesInputIterator                                             values_input,
+    typename std::iterator_traits<ValuesInputIterator>::value_type* values_buffer,
+    ValuesOutputIterator                                            values_output,
+    unsigned int                                                    size,
+    unsigned int                                                    bit,
+    unsigned int                                                    end_bit,
+    hipStream_t                                                     stream,
+    bool                                                            debug_synchronous)
+{
+    using key_type   = typename std::iterator_traits<KeysInputIterator>::value_type;
+    using value_type = typename std::iterator_traits<ValuesInputIterator>::value_type;
+    const unsigned int current_radix_bits = end_bit - bit;
+
+    static constexpr bool with_custom_config = !std::is_same<Config, default_config>::value;
+
+    // In device_radix_sort, we use this device_radix_sort_merge_sort specialization only
+    // for low input sizes (< 1M elements), so we hardcode a kernel configuration most
+    // suitable for this (maximum: <256u, 4u>).
+    // Use <256u, 4u>, unless smaller is needed to not exceed shared memory maximum.
+    using default_radix_sort_block_sort_config =
+        typename rocprim::detail::radix_sort_block_sort_config_base<key_type, value_type>::type;
+    using block_sort_config
+        = kernel_config<rocprim::min(256u, default_radix_sort_block_sort_config::block_size),
+                        rocprim::min(4u, default_radix_sort_block_sort_config::items_per_thread)>;
+
+    using block_merge_config = typename std::
+        conditional<with_custom_config, typename Config::block_merge_config, default_config>::type;
+
+    // Wrap our radix_sort_block_sort kernel config in a merge_sort_block_sort_config
+    // just so device_merge_sort_compile_time_verifier can check.
+    using wrapped_bs_config = wrapped_merge_sort_block_sort_config<
+        merge_sort_block_sort_config<block_sort_config::block_size,
+                                     block_sort_config::items_per_thread,
+                                     block_sort_algorithm::default_algorithm>,
+        key_type,
+        value_type>;
+    using wrapped_bm_config
+        = wrapped_merge_sort_block_merge_config<block_merge_config, key_type, value_type>;
+
+    (void)device_merge_sort_compile_time_verifier<
+        wrapped_bs_config,
+        wrapped_bm_config>; // Some helpful checks during compile-time
+
+    unsigned int sort_items_per_block
+        = block_sort_config::block_size
+          * block_sort_config::
+              items_per_thread; // We will get this later from the block_sort algorithm
+
+    if(temporary_storage == nullptr)
     {
-        using key_type = typename std::iterator_traits<KeysInputIterator>::value_type;
-        using value_type = typename std::iterator_traits<ValuesInputIterator>::value_type;
+        return merge_sort_block_merge<block_merge_config>(
+            temporary_storage,
+            storage_size,
+            keys_output,
+            values_output,
+            size,
+            sort_items_per_block,
+            radix_merge_compare<Descending, false, key_type>(),
+            stream,
+            debug_synchronous,
+            keys_buffer,
+            values_buffer);
+    }
 
-        constexpr bool with_values = !std::is_same<value_type, ::rocprim::empty_type>::value;
-
-        constexpr unsigned int items_per_thread = Config::sort_merge::items_per_thread;
-        constexpr unsigned int block_size = Config::sort_merge::block_size;
-        constexpr unsigned int items_per_block = block_size * items_per_thread;
-
-        const unsigned int current_radix_bits = end_bit - bit;
-        auto number_of_blocks = (size + items_per_block - 1) / items_per_block;
-
-        std::chrono::high_resolution_clock::time_point start;
-        if(debug_synchronous)
-        {
-            std::cout << "block size " << block_size << '\n';
-            std::cout << "items per thread " << items_per_thread << '\n';
-            std::cout << "number of blocks " << number_of_blocks << '\n';
-            std::cout << "bit " << bit << '\n';
-            std::cout << "current_radix_bits " << current_radix_bits << '\n';
-        }
-
-        if(debug_synchronous) start = std::chrono::high_resolution_clock::now();
-
-        hipLaunchKernelGGL(
-            HIP_KERNEL_NAME(sort_single_kernel<
-                block_size, items_per_thread , Descending
-            >),
-            dim3(number_of_blocks), dim3(block_size), 0, stream,
-            keys_input, keys_buffer, values_input, values_buffer,
-            size, bit, current_radix_bits
-        );
-        ROCPRIM_DETAIL_HIP_SYNC_AND_RETURN_ON_ERROR("radix_sort_single", size, start)
-
-        bool temporary_store = true;
-        for(unsigned int block = items_per_block; block < size; block *= 2)
-        {
-            temporary_store = !temporary_store;
-            if(temporary_store)
-            {
-                if(debug_synchronous) start = std::chrono::high_resolution_clock::now();
-                if( current_radix_bits == sizeof(key_type) * 8 )
-                {
-                    hipLaunchKernelGGL(
-                        HIP_KERNEL_NAME(radix_block_merge_kernel<block_size, items_per_thread>),
-                        dim3(number_of_blocks), dim3(block_size), 0, stream,
-                        keys_output, keys_buffer, values_output, values_buffer,
-                        size, block, radix_merge_compare<Descending, false, key_type>()
-                    );
-                }
-                else
-                {
-                    hipLaunchKernelGGL(
-                        HIP_KERNEL_NAME(radix_block_merge_kernel<block_size, items_per_thread>),
-                        dim3(number_of_blocks), dim3(block_size), 0, stream,
-                        keys_output, keys_buffer, values_output, values_buffer,
-                        size, block, radix_merge_compare<Descending, true, key_type>(bit, current_radix_bits)
-                    );
-                }
-                ROCPRIM_DETAIL_HIP_SYNC_AND_RETURN_ON_ERROR("radix_block_merge_kernel", size, start);
-            }
-            else
-            {
-                if(debug_synchronous) start = std::chrono::high_resolution_clock::now();
-                if( current_radix_bits == sizeof(key_type) * 8 )
-                {
-                    hipLaunchKernelGGL(
-                        HIP_KERNEL_NAME(radix_block_merge_kernel<block_size, items_per_thread>),
-                        dim3(number_of_blocks), dim3(block_size), 0, stream,
-                        keys_buffer, keys_output, values_buffer, values_output,
-                        size, block, radix_merge_compare<Descending, false, key_type>()
-                    );
-                }
-                else
-                {
-                    hipLaunchKernelGGL(
-                        HIP_KERNEL_NAME(radix_block_merge_kernel<block_size, items_per_thread>),
-                        dim3(number_of_blocks), dim3(block_size), 0, stream,
-                        keys_buffer, keys_output, values_buffer, values_output,
-                        size, block, radix_merge_compare<Descending, true, key_type>(bit, current_radix_bits)
-                    );
-                }
-                ROCPRIM_DETAIL_HIP_SYNC_AND_RETURN_ON_ERROR("radix_block_merge_kernel", size, start);
-            }
-        }
-
-        if(temporary_store)
-        {
-            hipError_t error = ::rocprim::transform(
-                keys_buffer, keys_output, size,
-                ::rocprim::identity<key_type>(), stream, debug_synchronous
-            );
-            if(error != hipSuccess) return error;
-
-            if(with_values)
-            {
-                hipError_t error = ::rocprim::transform(
-                    values_buffer, values_output, size,
-                    ::rocprim::identity<value_type>(), stream, debug_synchronous
-                );
-                if(error != hipSuccess) return error;
-            }
-        }
-
+    if(size == size_t(0))
+    {
         return hipSuccess;
     }
+
+    radix_sort_block_sort<block_sort_config, Descending>(keys_input,
+                                                         keys_output,
+                                                         values_input,
+                                                         values_output,
+                                                         size,
+                                                         sort_items_per_block,
+                                                         bit,
+                                                         end_bit,
+                                                         stream,
+                                                         debug_synchronous);
+    // ^ sort_items_per_block is now updated
+    if(size > sort_items_per_block)
+    {
+        if(current_radix_bits == sizeof(key_type) * 8)
+        {
+            return merge_sort_block_merge<block_merge_config>(
+                temporary_storage,
+                storage_size,
+                keys_output,
+                values_output,
+                size,
+                sort_items_per_block,
+                radix_merge_compare<Descending, false, key_type>(),
+                stream,
+                debug_synchronous,
+                keys_buffer,
+                values_buffer);
+        }
+        else
+        {
+            return merge_sort_block_merge<block_merge_config>(
+                temporary_storage,
+                storage_size,
+                keys_output,
+                values_output,
+                size,
+                sort_items_per_block,
+                radix_merge_compare<Descending, true, key_type>(bit, current_radix_bits),
+                stream,
+                debug_synchronous,
+                keys_buffer,
+                values_buffer);
+        }
+    }
+    return hipSuccess;
+}
+
 } // end namespace detail
 
 END_ROCPRIM_NAMESPACE
