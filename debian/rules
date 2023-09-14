@@ -7,6 +7,7 @@ export VERBOSE=1
 
 # filter incompatible options from affecting device code
 CXXFLAGS := $(subst -fstack-protector-strong,-Xarch_host -fstack-protector-strong,$(CXXFLAGS))
+CXXFLAGS := $(subst -fcf-protection,-Xarch_host -fcf-protection,$(CXXFLAGS))
 
 CMAKE_FLAGS = \
 	-DCMAKE_BUILD_TYPE=Release \
