@@ -1,3 +1,10 @@
+rocprim (5.5.1-2) unstable; urgency=medium
+
+  * Filter cf-protection hardening from device code.
+    Fixes a FTBFS with dpkg >= 1.22
+
+ -- Christian Kastner <ckk@debian.org>  Thu, 14 Sep 2023 14:16:14 +0200
+
 rocprim (5.5.1-1) unstable; urgency=medium
 
   * New upstream version 5.5.1
