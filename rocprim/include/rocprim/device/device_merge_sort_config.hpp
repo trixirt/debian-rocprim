@@ -1,4 +1,4 @@
-// Copyright (c) 2022 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2022-2023 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -22,7 +22,6 @@
 #define ROCPRIM_DEVICE_DEVICE_MERGE_SORT_CONFIG_HPP_
 
 #include "config_types.hpp"
-#include "detail/config/device_merge_sort.hpp"
 #include "detail/config/device_merge_sort_block_merge.hpp"
 #include "detail/config/device_merge_sort_block_sort.hpp"
 #include "detail/device_config_helper.hpp"
@@ -35,38 +34,56 @@ BEGIN_ROCPRIM_NAMESPACE
 namespace detail
 {
 
-template<typename MergeSortConfig, typename, typename>
-struct wrapped_merge_sort_config
+/// \brief Kernel parameters for device merge sort.
+struct merge_sort_config_params
 {
-    template<target_arch Arch>
-    struct architecture_config
-    {
-        static constexpr merge_sort_config_params params = MergeSortConfig();
-    };
+    merge_sort_block_sort_config_params  block_sort_config;
+    merge_sort_block_merge_config_params block_merge_config;
 };
 
-template<typename Key, typename Value>
-struct wrapped_merge_sort_config<default_config, Key, Value>
-{
-    template<target_arch Arch>
-    struct architecture_config
-    {
-        static constexpr merge_sort_config_params params
-            = default_merge_sort_config<static_cast<unsigned int>(Arch), Key, Value>();
-    };
-};
+} // namespace detail
 
+/// \brief Configuration of device-level merge primitives.
+///
+/// \tparam SortBlockSize - block size in the block-sort step
+/// \tparam SortItemsPerThread - ItemsPerThread in the block-sort step
+/// \tparam MergeOddevenBlockSize - block size in the block merge step using oddeven impl
+///         (used when input_size < MinInputSizeMergepath)
+/// \tparam MergeMergepathPartitionBlockSize - block size of the partition kernel in the block merge
+///         step using mergepath impl
+/// \tparam MergeMergepathBlockSize - block size in the block merge step using mergepath impl
+/// \tparam MergeMergepathItemsPerThread - ItemsPerThread in the block merge step using
+///         mergepath impl
+/// \tparam MinInputSizeMergepath - breakpoint of input-size to use mergepath impl for
+///         block merge step
+template<unsigned int MergeOddevenBlockSize            = 512,
+         unsigned int SortBlockSize                    = MergeOddevenBlockSize,
+         unsigned int SortItemsPerThread               = 1,
+         unsigned int MergeMergepathPartitionBlockSize = 128,
+         unsigned int MergeMergepathBlockSize          = 128,
+         unsigned int MergeMergepathItemsPerThread     = 4,
+         unsigned int MinInputSizeMergepath            = (1 << 17) + 70000>
+struct merge_sort_config : detail::merge_sort_config_params
+{
 #ifndef DOXYGEN_SHOULD_SKIP_THIS
-template<typename MergeSortConfig, typename Key, typename Value>
-template<target_arch Arch>
-constexpr merge_sort_config_params
-    wrapped_merge_sort_config<MergeSortConfig, Key, Value>::architecture_config<Arch>::params;
+    /// \remark Here we map the public parameters to our internal structure.
+    using block_sort_config
+        = detail::merge_sort_block_sort_config<SortBlockSize,
+                                               SortItemsPerThread,
+                                               block_sort_algorithm::stable_merge_sort>;
+    using block_merge_config = detail::merge_sort_block_merge_config<MergeOddevenBlockSize,
+                                                                     1,
+                                                                     MinInputSizeMergepath,
+                                                                     MergeMergepathBlockSize,
+                                                                     MergeMergepathBlockSize,
+                                                                     MergeMergepathItemsPerThread>;
+    constexpr merge_sort_config()
+        : detail::merge_sort_config_params{block_sort_config(), block_merge_config()} {};
+#endif
+};
 
-template<typename Key, typename Value>
-template<target_arch Arch>
-constexpr merge_sort_config_params
-    wrapped_merge_sort_config<default_config, Key, Value>::architecture_config<Arch>::params;
-#endif // DOXYGEN_SHOULD_SKIP_THIS
+namespace detail
+{
 
 // Sub algorithm block_merge:
 
@@ -76,7 +93,6 @@ struct wrapped_merge_sort_block_merge_config
     template<target_arch Arch>
     struct architecture_config
     {
-        //using params = MergeSortBlockMergeConfig;
         static constexpr merge_sort_block_merge_config_params params = MergeSortBlockMergeConfig();
     };
 };
@@ -87,7 +103,6 @@ struct wrapped_merge_sort_block_merge_config<default_config, Key, Value>
     template<target_arch Arch>
     struct architecture_config
     {
-        //using params = default_merge_sort_config<static_cast<unsigned int>(Arch), Key, Value>;
         static constexpr merge_sort_block_merge_config_params params
             = default_merge_sort_block_merge_config<static_cast<unsigned int>(Arch), Key, Value>();
     };
