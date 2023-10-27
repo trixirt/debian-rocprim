@@ -1,6 +1,6 @@
 // MIT License
 //
-// Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2017-2023 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -42,24 +42,17 @@
 const size_t DEFAULT_N = 1024 * 1024 * 32;
 #endif
 
-#define CREATE_BY_KEY_BENCHMARK(EXCL, T, SCAN_OP, MSL)                     \
-    {                                                                      \
-        const device_scan_benchmark<true, EXCL, T, SCAN_OP, MSL> instance; \
-        REGISTER_BENCHMARK(benchmarks, size, stream, instance);            \
+#define CREATE_EXCL_INCL_BENCHMARK(EXCL, T, SCAN_OP)            \
+    {                                                           \
+        const device_scan_benchmark<EXCL, T, SCAN_OP> instance; \
+        REGISTER_BENCHMARK(benchmarks, size, stream, instance); \
     }
 
-#define CREATE_BENCHMARK(EXCL, T, SCAN_OP)                             \
-    {                                                                  \
-        const device_scan_benchmark<false, EXCL, T, SCAN_OP> instance; \
-        REGISTER_BENCHMARK(benchmarks, size, stream, instance);        \
-    }                                                                  \
-    CREATE_BY_KEY_BENCHMARK(EXCL, T, SCAN_OP, 1)                       \
-    CREATE_BY_KEY_BENCHMARK(EXCL, T, SCAN_OP, 16)                      \
-    CREATE_BY_KEY_BENCHMARK(EXCL, T, SCAN_OP, 256)                     \
-    CREATE_BY_KEY_BENCHMARK(EXCL, T, SCAN_OP, 4096)                    \
-    CREATE_BY_KEY_BENCHMARK(EXCL, T, SCAN_OP, 65536)
+#define CREATE_BENCHMARK(T, SCAN_OP)              \
+    CREATE_EXCL_INCL_BENCHMARK(false, T, SCAN_OP) \
+    CREATE_EXCL_INCL_BENCHMARK(true, T, SCAN_OP)
 
-int main(int argc, char *argv[])
+int main(int argc, char* argv[])
 {
     cli::Parser parser(argc, argv);
     parser.set_optional<size_t>("size", "size", DEFAULT_N, "number of values");
@@ -83,8 +76,8 @@ int main(int argc, char *argv[])
 
     // Parse argv
     benchmark::Initialize(&argc, argv);
-    const size_t size = parser.get<size_t>("size");
-    const int trials = parser.get<int>("trials");
+    const size_t size   = parser.get<size_t>("size");
+    const int    trials = parser.get<int>("trials");
     bench_naming::set_format(parser.get<std::string>("name_format"));
 
     // HIP
@@ -108,38 +101,17 @@ int main(int argc, char *argv[])
     using custom_float2  = custom_type<float, float>;
     using custom_double2 = custom_type<double, double>;
 
-    CREATE_BENCHMARK(false, int, rocprim::plus<int>)
-    CREATE_BENCHMARK(true, int, rocprim::plus<int>)
-
-    CREATE_BENCHMARK(false, float, rocprim::plus<float>)
-    CREATE_BENCHMARK(true, float, rocprim::plus<float>)
-
-    CREATE_BENCHMARK(false, double, rocprim::plus<double>)
-    CREATE_BENCHMARK(true, double, rocprim::plus<double>)
-
-    CREATE_BENCHMARK(false, long long, rocprim::plus<long long>)
-    CREATE_BENCHMARK(true, long long, rocprim::plus<long long>)
-
-    CREATE_BENCHMARK(false, float2, rocprim::plus<float2>)
-    CREATE_BENCHMARK(true, float2, rocprim::plus<float2>)
-
-    CREATE_BENCHMARK(false, custom_float2, rocprim::plus<custom_float2>)
-    CREATE_BENCHMARK(true, custom_float2, rocprim::plus<custom_float2>)
-
-    CREATE_BENCHMARK(false, double2, rocprim::plus<double2>)
-    CREATE_BENCHMARK(true, double2, rocprim::plus<double2>)
-
-    CREATE_BENCHMARK(false, custom_double2, rocprim::plus<custom_double2>)
-    CREATE_BENCHMARK(true, custom_double2, rocprim::plus<custom_double2>)
-
-    CREATE_BENCHMARK(false, int8_t, rocprim::plus<int8_t>)
-    CREATE_BENCHMARK(true, int8_t, rocprim::plus<int8_t>)
-
-    CREATE_BENCHMARK(false, uint8_t, rocprim::plus<uint8_t>)
-    CREATE_BENCHMARK(true, uint8_t, rocprim::plus<uint8_t>)
-
-    CREATE_BENCHMARK(false, rocprim::half, rocprim::plus<rocprim::half>)
-    CREATE_BENCHMARK(true, rocprim::half, rocprim::plus<rocprim::half>)
+    CREATE_BENCHMARK(int, rocprim::plus<int>)
+    CREATE_BENCHMARK(float, rocprim::plus<float>)
+    CREATE_BENCHMARK(double, rocprim::plus<double>)
+    CREATE_BENCHMARK(long long, rocprim::plus<long long>)
+    CREATE_BENCHMARK(float2, rocprim::plus<float2>)
+    CREATE_BENCHMARK(custom_float2, rocprim::plus<custom_float2>)
+    CREATE_BENCHMARK(double2, rocprim::plus<double2>)
+    CREATE_BENCHMARK(custom_double2, rocprim::plus<custom_double2>)
+    CREATE_BENCHMARK(int8_t, rocprim::plus<int8_t>)
+    CREATE_BENCHMARK(uint8_t, rocprim::plus<uint8_t>)
+    CREATE_BENCHMARK(rocprim::half, rocprim::plus<rocprim::half>)
 #endif
 
     // Use manual timing
