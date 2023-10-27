@@ -1,7 +1,7 @@
 #!/usr/bin/make -f
 export CXX=hipcc
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all optimize=-lto
-export DEB_CXXFLAGS_MAINT_PREPEND = -gdwarf-4
+export DEB_CXXFLAGS_MAINT_PREPEND = -gz
 export VERBOSE=1
 #export AMD_LOG_LEVEL=4
 
@@ -36,6 +36,10 @@ ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
 endif
 
 override_dh_auto_test-indep:
+	:
+
+# dwz doesn't fully support DWARF-5 yet, see #1016936
+override_dh_dwz:
 	:
 
 execute_before_dh_install-arch:
