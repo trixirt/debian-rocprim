@@ -1,3 +1,10 @@
+rocprim (5.7.1-1~exp1) experimental; urgency=medium
+
+  * New upstream version 5.7.1
+  * dbgsym: Disable dwz and switch to compressed DWARF-5
+
+ -- Christian Kastner <ckk@debian.org>  Fri, 27 Oct 2023 12:31:25 +0200
+
 rocprim (5.5.1-2) unstable; urgency=medium
 
   * Filter cf-protection hardening from device code.
