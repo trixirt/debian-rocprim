@@ -15,7 +15,7 @@ Build-Depends: debhelper-compat (= 13),
                libamd-comgr-dev (>= 6.0~),
                libhsa-runtime-dev (>= 5.7.1~),
                rocm-cmake (>= 5.3.0),
-               libgtest-dev
+               libgtest-dev <!nocheck>
 Rules-Requires-Root: no
 
 Package: librocprim-dev
@@ -32,6 +32,7 @@ Package: librocprim-tests
 Section: libdevel
 Architecture: amd64 arm64 ppc64el
 Depends: ${misc:Depends}, ${shlibs:Depends},
+Build-Profiles: <!nocheck>
 Description: parallel primitives for GPU-accelerated code - tests
  rocPRIM is a header-only library providing HIP parallel primitives for
  developing performant GPU-accelerated code on the AMD ROCm platform.
