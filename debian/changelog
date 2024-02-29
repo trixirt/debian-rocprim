@@ -1,3 +1,12 @@
+rocprim (5.7.1-2~exp1) experimental; urgency=medium
+
+  * Enable gfx1100, gfx1101, and gfx1102 architectures
+  * Update Build-Depends to require clang-17
+  * Drop patchelf from Build-Depends
+  * d/rules: mark test packages as <!nocheck>
+
+ -- Cordell Bloor <cgmb@slerp.xyz>  Thu, 29 Feb 2024 13:06:02 -0700
+
 rocprim (5.7.1-1) unstable; urgency=medium
 
   * Migrate to unstable
