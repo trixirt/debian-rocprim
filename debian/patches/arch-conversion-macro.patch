@@ -1,0 +1,66 @@
+From: Cordell Bloor <cgmb@slerp.xyz>
+Date: Mon, 25 Mar 2024 01:13:16 -0600
+Subject: add opt-in macro for arch conversion
+
+The Debian patch that loads code objects built for a particular ISA on
+all compatible hardware not supported upstream, so for a header-only
+library like rocprim it seems prudent to make behaviour depending on
+that to be opt-in.
+
+Forwarded: not-needed
+Bug-Debian: https://bugs.debian.org/1056172
+---
+ rocprim/include/rocprim/device/config_types.hpp | 33 +++++++++++++++++++++++--
+ 1 file changed, 31 insertions(+), 2 deletions(-)
+
+diff --git a/rocprim/include/rocprim/device/config_types.hpp b/rocprim/include/rocprim/device/config_types.hpp
+index 8c4c825..7146cbe 100644
+--- a/rocprim/include/rocprim/device/config_types.hpp
++++ b/rocprim/include/rocprim/device/config_types.hpp
+@@ -196,8 +196,26 @@ constexpr bool prefix_equals(const char* lhs, const char* rhs, std::size_t n)
+ 
+ constexpr target_arch get_target_arch_from_name(const char* const arch_name, const std::size_t n)
+ {
+-    constexpr const char* target_names[]
+-        = {"gfx803", "gfx900", "gfx906", "gfx908", "gfx90a", "gfx1030", "gfx1102"};
++    constexpr const char* target_names[] = {
++        "gfx803",
++        "gfx900",
++        "gfx906",
++        "gfx908",
++        "gfx90a",
++        "gfx1030",
++        "gfx1102",
++#ifdef ROCPRIM_USE_ARCH_CONVERSION
++        "gfx902",
++        "gfx909",
++        "gfx90c",
++        "gfx1031",
++        "gfx1032",
++        "gfx1033",
++        "gfx1034",
++        "gfx1035",
++        "gfx1036",
++#endif
++	};
+     constexpr target_arch target_architectures[] = {
+         target_arch::gfx803,
+         target_arch::gfx900,
+@@ -206,6 +224,17 @@ constexpr target_arch get_target_arch_from_name(const char* const arch_name, con
+         target_arch::gfx90a,
+         target_arch::gfx1030,
+         target_arch::gfx1102,
++#ifdef ROCPRIM_USE_ARCH_CONVERSION
++        target_arch::gfx900,
++        target_arch::gfx900,
++        target_arch::gfx900,
++        target_arch::gfx1030,
++        target_arch::gfx1030,
++        target_arch::gfx1030,
++        target_arch::gfx1030,
++        target_arch::gfx1030,
++        target_arch::gfx1030,
++#endif
+     };
+     static_assert(sizeof(target_names) / sizeof(target_names[0])
+                       == sizeof(target_architectures) / sizeof(target_architectures[0]),
