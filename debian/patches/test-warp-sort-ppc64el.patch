@@ -1,0 +1,27 @@
+From: Cordell Bloor <cgmb@slerp.xyz>
+Date: Mon, 25 Mar 2024 10:48:00 -0600
+Subject: disable test_warp_sort on ppc64el
+
+This test fails to build on ppc64el with clang-17. It seems as if the
+host platform affects the compiler optimization passes that are enabled
+for device code.
+
+Forwarded: not-needed
+Bug-Debian: https://bugs.debian.org/1065206
+---
+ test/rocprim/CMakeLists.txt | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/test/rocprim/CMakeLists.txt b/test/rocprim/CMakeLists.txt
+index 81d22ee..796ea1e 100644
+--- a/test/rocprim/CMakeLists.txt
++++ b/test/rocprim/CMakeLists.txt
+@@ -268,6 +268,8 @@ add_rocprim_test("rocprim.warp_exchange" test_warp_exchange.cpp)
+ add_rocprim_test("rocprim.warp_load" test_warp_load.cpp)
+ add_rocprim_test("rocprim.warp_reduce" test_warp_reduce.cpp)
+ add_rocprim_test("rocprim.warp_scan" test_warp_scan.cpp)
++if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(powerpc|ppc)64")
+ add_rocprim_test("rocprim.warp_sort" test_warp_sort.cpp)
++endif()
+ add_rocprim_test("rocprim.warp_store" test_warp_store.cpp)
+ add_rocprim_test("rocprim.zip_iterator" test_zip_iterator.cpp)
