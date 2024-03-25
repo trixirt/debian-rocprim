@@ -1,0 +1,28 @@
+From: Cordell Bloor <cgmb@slerp.xyz>
+Date: Mon, 25 Mar 2024 15:12:34 -0600
+Subject: verbose build
+
+Some rocprim source files are large enough that they've been split into
+slices to try to compile faster. However, they're still quite slow to
+build on the older buildd machines. The verbose flag ensures that a
+message is printed every time the compiler finishes building a
+translation unit for each GPU architecture, which should help prevent
+timeouts if the build is still making forward progress.
+
+Forwarded: not-needed
+---
+ test/rocprim/CMakeLists.txt | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/test/rocprim/CMakeLists.txt b/test/rocprim/CMakeLists.txt
+index 796ea1e..5b38b89 100644
+--- a/test/rocprim/CMakeLists.txt
++++ b/test/rocprim/CMakeLists.txt
+@@ -198,6 +198,7 @@ ${TEST_TYPE_SLICE_COUNT} test type slice(s) for test target ${TEST_TARGET}")
+         set(FILENAME "${TEST_TARGET}.parallel/${TEST_TARGET}_typed_${ROCPRIM_TEST_SUITE_SLICE}_${ROCPRIM_TEST_TYPE_SLICE}.cpp")
+         configure_file(${TEST_SOURCE} ${FILENAME} @ONLY)
+         list(APPEND SOURCES "${CMAKE_CURRENT_BINARY_DIR}/${FILENAME}")
++        set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/${FILENAME}" PROPERTIES COMPILE_FLAGS "-v")
+       endforeach()
+     endforeach()
+   endif()
