@@ -4,8 +4,10 @@ rocprim (5.7.1-2) unstable; urgency=medium
   * Add d/p/test-warp-sort-ppc64el.patch to drop test_warp_sort from
     librocprim-tests on ppc64el due to FTBFS when compiling with clang-17.
     This is a workaround for bug #1065206
+  * Add d/p/verbose-build.patch to print more log messages during the build,
+    to prevent timeouts on slower buildd systems.
 
- -- Cordell Bloor <cgmb@slerp.xyz>  Mon, 25 Mar 2024 10:52:13 -0600
+ -- Cordell Bloor <cgmb@slerp.xyz>  Mon, 25 Mar 2024 15:17:12 -0600
 
 rocprim (5.7.1-2~exp2) experimental; urgency=medium
 
