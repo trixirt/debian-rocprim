@@ -1,7 +1,7 @@
 #!/usr/bin/make -f
 export CXX=hipcc
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all optimize=-lto
-export DEB_CXXFLAGS_MAINT_PREPEND = -gz
+export DEB_CXXFLAGS_MAINT_PREPEND = -gz -DROCPRIM_USE_ARCH_CONVERSION
 export VERBOSE=1
 #export AMD_LOG_LEVEL=4
 
