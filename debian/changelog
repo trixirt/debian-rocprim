@@ -1,3 +1,12 @@
+rocprim (5.7.1-2~exp2) experimental; urgency=medium
+
+  * Add d/p/arch-conversion-macro.patch to support loading gfx900 code objects
+    on gfx902, gfx909, and gfx90c, as well as gfx1030 code objects on gfx1031
+    to gfx1036.
+  * Add d/gbp.conf to ensure consistent settings
+
+ -- Cordell Bloor <cgmb@slerp.xyz>  Mon, 25 Mar 2024 02:44:48 -0600
+
 rocprim (5.7.1-2~exp1) experimental; urgency=medium
 
   * Enable gfx1100, gfx1101, and gfx1102 architectures
