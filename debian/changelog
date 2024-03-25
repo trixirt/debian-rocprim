@@ -1,3 +1,12 @@
+rocprim (5.7.1-2) unstable; urgency=medium
+
+  * Migrate to unstable
+  * Add d/p/test-warp-sort-ppc64el.patch to drop test_warp_sort from
+    librocprim-tests on ppc64el due to FTBFS when compiling with clang-17.
+    This is a workaround for bug #1065206
+
+ -- Cordell Bloor <cgmb@slerp.xyz>  Mon, 25 Mar 2024 10:52:13 -0600
+
 rocprim (5.7.1-2~exp2) experimental; urgency=medium
 
   * Add d/p/arch-conversion-macro.patch to support loading gfx900 code objects
