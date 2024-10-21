@@ -1,3 +1,13 @@
+rocprim (6.0.2-1~exp1) experimental; urgency=medium
+
+  [ Cordell Bloor ]
+  * d/salsa-ci.yml: disable build on i386
+
+  [ Tom Rix ]
+  * New upstream version 6.0.2-1
+
+ --  Tom Rix <Tom.Rix@amd.com>  Mon, 21 Oct 2024 12:59:47 +0000
+
 rocprim (5.7.1-2) unstable; urgency=medium
 
   * Migrate to unstable
