@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2017-2022 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (c) 2017-2023 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -21,7 +21,7 @@
 # SOFTWARE.
 
 cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
-cmake_policy(VERSION 3.16...3.21)
+cmake_policy(VERSION 3.16...3.25)
 
 # Install prefix
 set(CMAKE_INSTALL_PREFIX "/opt/rocm" CACHE PATH "Install path prefix, prepended onto install directories")
@@ -30,7 +30,11 @@ set(CMAKE_INSTALL_PREFIX "/opt/rocm" CACHE PATH "Install path prefix, prepended 
 project(rocprim LANGUAGES CXX)
 
 #Adding CMAKE_PREFIX_PATH
-list(APPEND CMAKE_PREFIX_PATH /opt/rocm)
+if(WIN32)
+  set(ROCM_ROOT "$ENV{HIP_PATH}" CACHE PATH "Root directory of the ROCm installation")
+else()
+  set(ROCM_ROOT "/opt/rocm" CACHE PATH "Root directory of the ROCm installation")
+endif()
 
 # Build options
 option(BUILD_TEST "Build tests (requires googletest)" OFF)
@@ -44,7 +48,7 @@ option(BUILD_CODE_COVERAGE "Build with code coverage enabled" OFF)
 # CMake modules
 list(APPEND CMAKE_MODULE_PATH
   ${CMAKE_CURRENT_SOURCE_DIR}/cmake
-  ${ROCM_PATH}/lib/cmake/hip ${HIP_PATH}/cmake /opt/rocm/lib/cmake/hip /opt/rocm/hip/cmake # FindHIP.cmake
+  ${ROCM_PATH}/lib/cmake/hip ${HIP_PATH}/cmake ${ROCM_ROOT}/lib/cmake/hip ${ROCM_ROOT}/hip/cmake # FindHIP.cmake
 )
 
 # Set a default build type if none was specified
@@ -84,12 +88,12 @@ if(NOT USE_HIP_CPU)
   if (NOT WIN32)
     include(cmake/VerifyCompiler.cmake)
   endif()
-  list(APPEND CMAKE_PREFIX_PATH ${ROCM_PATH} ${ROCM_PATH}/hip ${ROCM_PATH}/llvm /opt/rocm/llvm /opt/rocm /opt/rocm/hip)
+  list(APPEND CMAKE_PREFIX_PATH ${ROCM_PATH} ${ROCM_PATH}/hip ${ROCM_PATH}/llvm ${ROCM_ROOT}/llvm ${ROCM_ROOT} ${ROCM_ROOT}/hip)
   find_package(hip REQUIRED CONFIG PATHS ${HIP_DIR} ${ROCM_PATH} /opt/rocm)
 endif()
 
 # FOR HANDLING ENABLE/DISABLE OPTIONAL BACKWARD COMPATIBILITY for FILE/FOLDER REORG
-option(BUILD_FILE_REORG_BACKWARD_COMPATIBILITY "Build with file/folder reorg with backward compatibility enabled" ON)
+option(BUILD_FILE_REORG_BACKWARD_COMPATIBILITY "Build with file/folder reorg with backward compatibility enabled" OFF)
 if(BUILD_FILE_REORG_BACKWARD_COMPATIBILITY AND NOT WIN32)
   rocm_wrap_header_dir(
     "${PROJECT_SOURCE_DIR}/rocprim/include/rocprim"
@@ -110,7 +114,7 @@ if(USE_HIP_CPU)
 endif()
 
 # Setup VERSION
-set(VERSION_STRING "2.13.1")
+set(VERSION_STRING "3.0.0")
 rocm_setup_version(VERSION ${VERSION_STRING})
 
 # Print configuration summary

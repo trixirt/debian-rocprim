@@ -26,6 +26,7 @@
 #include <type_traits>
 
 #include "../config.hpp"
+#include "../functional.hpp"
 #include "../detail/various.hpp"
 
 /// \addtogroup iteratormodule
@@ -111,7 +112,7 @@ struct match_texture_type
 
 /// \class texture_cache_iterator
 /// \brief A random-access input (read-only) iterator adaptor for dereferencing array values
-/// through texture cache.
+/// through texture cache.  This iterator is not functional on gfx94x architectures.
 ///
 /// \par Overview
 /// * A texture_cache_iterator wraps a device pointer of type T, where values are obtained
@@ -120,6 +121,8 @@ struct match_texture_type
 /// * Can only be constructed within host functions, and can only be dereferenced within
 /// device functions.
 /// * Accepts any data type from memory, and loads through texture cache.
+/// * This iterator is not functional on gfx94x architectures, as native texture fetch functions 
+/// are not supported in gfx94x.
 ///
 /// \tparam T - type of value that can be obtained by dereferencing the iterator.
 /// \tparam Difference - a type used for identify distance between iterators.
@@ -154,6 +157,14 @@ public:
     {
     }
 
+    /// \brief Creates a \p hipTextureObject_t and binds this iterator to it.
+    ///
+    /// \tparam Texture data pointer type
+    ///
+    /// \param ptr - pointer to the texture data on the device
+    /// \param bytes - size of the texture data (in bytes)
+    /// \param texture_offset - an offset from ptr to load texture data from
+    /// (Defaults to 0)
     template<class Qualified>
     inline
     hipError_t bind_texture(Qualified* ptr,
@@ -177,13 +188,14 @@ public:
         return hipCreateTextureObject(&texture_object, &resourse_desc, &texture_desc, NULL);
     }
 
+    /// \brief Destroys the texture object that this iterator points at.
     inline
     hipError_t unbind_texture()
     {
         return hipDestroyTextureObject(texture_object);
     }
 
-    //! \skip_doxy_start
+    #ifndef DOXYGEN_SHOULD_SKIP_THIS
     ROCPRIM_HOST_DEVICE inline
     texture_cache_iterator& operator++()
     {
@@ -209,6 +221,10 @@ public:
         #else
         texture_type words[multiple];
 
+        #if defined(__gfx940__) || defined(__gfx941__) || defined(__gfx942__)
+        #pragma message "Texture cache iterator is not supported on gfx94x as the texture fetch functions in HIP are not available."
+        ROCPRIM_PRINT_ERROR_ONCE("WARNING: Usage of texture_cache_iterator on gfx94x device is not supported and will not produce valid results.")
+        #else
         ROCPRIM_UNROLL
         for(unsigned int i = 0; i < multiple; i++)
         {
@@ -218,7 +234,7 @@ public:
                 (texture_offset * multiple) + i
             );
         }
-
+        #endif
         return *reinterpret_cast<value_type*>(words);
         #endif
     }
@@ -318,7 +334,7 @@ public:
     {
         return os;
     }
-    //! \skip_doxy_end
+    #endif // DOXYGEN_SHOULD_SKIP_THIS
 
 private:
     using texture_type = typename ::rocprim::detail::match_texture_type<T>::type;
@@ -328,6 +344,7 @@ private:
     hipTextureObject_t texture_object;
 };
 
+#ifndef DOXYGEN_SHOULD_SKIP_THIS
 template<
     class T,
     class Difference
@@ -339,10 +356,11 @@ operator+(typename texture_cache_iterator<T, Difference>::difference_type distan
 {
     return iterator + distance;
 }
+#endif // DOXYGEN_SHOULD_SKIP_THIS
+
+END_ROCPRIM_NAMESPACE
 
 /// @}
 // end of group iteratormodule
-
-END_ROCPRIM_NAMESPACE
 
 #endif // ROCPRIM_ITERATOR_TEXTURE_CACHE_ITERATOR_HPP_
